@@ -58,6 +58,8 @@ Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the bui
 
 The app runs in the macOS App Sandbox (`src-tauri/Entitlements.plist`). `com.apple.security.network.client` is there because WKWebView loads no page without it inside the sandbox, the app's own bundled page included. The app makes no network requests.
 
+Launch a Developer ID signed build through Launch Services: `open -W -n --env PLAINTASK_MEASURE_LAUNCH=1 --stdout <file> Plaintask.app`. Executing `Contents/MacOS/plaintask` directly starts the process, but the page never draws and "ready" never prints. An ad-hoc-signed build draws either way. `scripts/measure-launch.mjs` executes the binary directly, so it times launches of ad-hoc builds only.
+
 ## Speed budgets
 
 Measured 2026-11-21 on an M-series Mac at a load average of 6 to 8, sandboxed release build, screen unlocked.

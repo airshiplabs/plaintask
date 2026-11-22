@@ -26,17 +26,29 @@
 | `pr` | Pull request conflicts with `main` | Rebase the release branch onto `origin/main` (no merge commit), push, run `pr` again. |
 | `build` | `pnpm` or `cargo` failed | Fix forward through a normal pull request. Do not revert the release pull request. Then `R build --version <V> --sha <new origin/main commit>`. The version is not used up: no tag exists yet. |
 | `build` | `would fail notarization` | The message names each problem. No secure timestamp or the wrong team: check the network and `signing-probe` in `references/setup.md`. No hardened runtime or `com.apple.security.get-task-allow`: the build was not a release build. Then build again. |
+| `build` or `verify` | A codesign, `spctl` or `syspolicy_check` error with no row here | Inspect read-only: `codesign -dvvv` and `codesign --verify --strict --deep -vvv` on the app, `spctl -a -vvv -t exec`, and the command's own full output. An unnotarized Developer ID app is rejected by `spctl` before notarization; that alone is not a fault. Submitting the app to `notarytool` by hand uploads it to Apple: ask the person first. Apple's notary log is the authority when a local check disagrees with it. |
 | `build` | Exit 3, notarization in progress | Run the same `build` command. It resumes at the wait and does not rebuild. A team's first submission can take hours. |
 | `build` | `notarization ... ended as Invalid` | `dist/release/<V>/notary-log.json` lists each file and message. Fix forward as for a build failure. Remove `dist/release/<V>/` before building the same commit again. |
 | `build` | Exit 3, `app notarization ... is still in progress` | The `.app` is notarized before the DMG is made, with a 60-minute wait. Run the same `build` command: it builds and submits the app again. |
 | `build` | `app notarization ... ended as Invalid` | `dist/release/<V>/app-notary-log.json` lists each file and message. Fix forward as for a build failure. |
 | `build` | `a GitHub release for desktop-v<V> exists` | A rebuild makes a different DMG than the one staged. To rebuild, undo the stage first (below). |
 | `verify` | Any check fails | Do not stage. The failed check ids are in `verify.json`. Fix the cause and build again. |
+| `verify` | Exit 1, yet every check in its JSON is `ok` and `status` reports `verified` | The script failed after the checks ran; the DMG passed. Do not rebuild. Fix the script forward (see "Fix forward"), and stage only with the person's approval. |
 | `stage` | Exit 3, `test` check not finished on the release commit | Run `stage` again when the check on `main` finishes. |
 | `stage` | `no passing verify.json`, or the DMG `changed after it was built and verified` | Run `verify` again. If the DMG changed, remove `dist/release/<V>/` and build again. |
 | `stage` | Tag pushed, `gh release create` failed | Run `stage` again. It keeps the tag when origin's tag points at the release commit. |
 | `stage` | `tag desktop-v<V> on origin points at <other>` | See "Undo a stage". |
 | `publish` | `the published ... has sha256 <other>` | `gh release edit desktop-v<V> --draft=true`, then find out why the asset differs. Re-upload only from the verified `dist/release/<V>/`: `gh release upload desktop-v<V> dist/release/<V>/<dmg> --clobber`. Run `publish` again. |
+
+## Fix forward
+
+A fault in the app or in this skill's tooling after the release pull request merged is fixed in its own pull request on `main`; the version is not used up until a tag exists.
+
+1. Wait for any running release subcommand to finish: they need a clean checkout, and the fix shares it.
+2. Ask the person once whether to open the fix pull request and merge it when its checks pass.
+3. Branch from `origin/main` with the `branch-naming` skill, commit signed with a Conventional Commits message, and end the body with the `pr-session-footer` skill. A change to release tooling alone needs no changelog entry; a change to the shipped app gets one under `[Unreleased]` (see "A change lands after the release pull request").
+4. Merge with a squash once every check on the pull request has finished and passed. GitHub refuses auto-merge while any check, required or not, is still running.
+5. Build with `--sha <new origin/main commit>`, whatever `status` names as `next`: `status` still points at the old build.
 
 ## Undo a stage
 

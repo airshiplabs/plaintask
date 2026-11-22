@@ -9,7 +9,7 @@ Run one command. It checks out the release commit, builds the app with the Devel
 
 ## Steps
 
-Run from the repo root. Allow 60 minutes: a cold Rust build takes about 10, and Apple's notary service usually answers within 15.
+Run from the repo root. Allow 60 minutes or more: a cold Rust build takes about 10, and the build makes two notary submissions, the app and then the DMG. Each usually takes minutes, but a team's first submission can take hours.
 
 1. Run `node .claude/skills/release/scripts/release.mjs build --version <version> --sha <sha>`.
 2. Act on the exit code:
@@ -19,7 +19,9 @@ Run from the repo root. Allow 60 minutes: a cold Rust build takes about 10, and 
 | 0 | Done. Stdout is the build record. |
 | 1 | Stop. Return `failed`. If stderr mentions notarization, read `dist/release/<version>/notary-log.json` and put each issue's `path` and `message` in NOTES. |
 | 2 | Stop. Return `blocked` with the last lines of stderr. A missing identity or notary profile is fixed by the person, not by you. |
-| 3 | Notarization is still in progress. Run the same command again: it resumes at the wait and does not rebuild. Up to 6 times. Then return `blocked`. |
+| 3 | Notarization is still in progress. Run the same command again, up to 6 times, then return `blocked`. On the DMG step (`notarization ... in progress`) it resumes at the wait; on the app step (`app notarization ... in progress`) it builds and submits the app again. |
+
+Tauri prints "skipping app notarization, no APPLE_ID ..." on every build. It is expected: the script notarizes with the `plaintask-notary` keychain profile itself. Do not report it.
 
 ## Do not
 
