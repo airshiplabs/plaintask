@@ -1,0 +1,16 @@
+<!-- @dsCard group="Tasks" height=72 subtitle="Click to tick" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Checkbox</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<ul class="stage" id="s" style="list-style:none;margin:0"></ul>
+<script>
+var P = window.Plaintask;
+var s = document.getElementById('s');
+s.innerHTML = P.Checkbox({ label: 'Order floor tiles' }) + P.Checkbox({ checked: true, label: 'Measure the floor' });
+s.addEventListener('click', function (e) { var c = e.target.closest('.pt-check'); if (!c) return; var on = c.getAttribute('aria-checked') !== 'true'; c.setAttribute('aria-checked', on); if (on) { c.classList.remove('is-celebrating'); void c.offsetWidth; c.classList.add('is-celebrating'); } });
+</script>
+</body>
+</html>

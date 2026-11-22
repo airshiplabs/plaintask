@@ -1,0 +1,41 @@
+<!-- @dsCard group="Tasks" height=330 subtitle="Tick a task or move it to Trash, then Undo" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>TaskRow</title>
+<style>body { margin: 0; background: var(--surface); } h4 { margin: 0; padding: 8px 20px 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }</style>
+</head>
+<body class="pt-root">
+<ul id="s" style="padding:8px"></ul>
+<h4>In Trash · deleted yesterday</h4>
+<ul id="trash" style="padding:0 8px 8px"></ul>
+<div class="pt-toasts" id="t" style="padding-bottom:8px"></div>
+<script>
+var P = window.Plaintask;
+var tasks = [
+  { id: 't1', title: 'Order floor tiles', project: 'Kitchen renovation', due: 'Due Fri' },
+  { id: 't4', title: 'Book a check-up', project: 'Dentist', tags: ['call'], due: 'Due soon · Mon', dueSoon: true },
+  { id: 't6', title: '5 km easy', project: 'Running', repeat: 'Tue, Thu' },
+  { id: 't23', title: 'Pick the tile colour', project: 'Kitchen renovation', done: true, doneLabel: 'Yesterday' }
+];
+var s = document.getElementById('s'), host = document.getElementById('t');
+s.innerHTML = tasks.map(function (t) { return P.TaskRow(t, { trashButton: !t.done }); }).join('');
+document.getElementById('trash').innerHTML = P.TaskRow({ id: 'x1', title: 'Call the old plumber', project: 'Kitchen renovation', trashed: true });
+var back = function (li, row) { li.hidden = false; li.classList.remove('is-leaving'); row.classList.remove('is-done'); var c = row.querySelector('.pt-check'); if (c) c.setAttribute('aria-checked', 'false'); };
+s.addEventListener('click', function (e) {
+  var row = e.target.closest('.pt-task'); if (!row) return;
+  var li = row.closest('li'), title = row.querySelector('.pt-task__title').textContent;
+  if (e.target.closest('.pt-trash-btn')) {
+    P.trash(row, function () { li.hidden = true; });
+    P.toast(host, 'Moved to Trash: ' + title, 'Undo', function () { back(li, row); });
+    return;
+  }
+  var c = e.target.closest('.pt-check'); if (!c || c.getAttribute('aria-checked') === 'true') return;
+  P.complete(row, function () { li.hidden = true; });
+  P.toast(host, 'Completed: ' + title, 'Undo', function () { back(li, row); });
+});
+document.getElementById('trash').addEventListener('click', function (e) {
+  if (e.target.closest('.pt-restore')) P.toast(host, 'Restored: Call the old plumber');
+});
+</script>
+</body>
+</html>

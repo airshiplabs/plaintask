@@ -1,0 +1,16 @@
+<!-- @dsCard group="Feedback" height=120 subtitle="Click to show another" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Toast</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div style="padding:16px;display:grid;gap:12px;justify-items:center"><button class="pt-btn" id="go" type="button">Complete a task</button><div class="pt-toasts" id="t" aria-live="polite"></div></div>
+<script>
+var P = window.Plaintask;
+var t = document.getElementById('t');
+t.innerHTML = P.Toast({ message: 'Completed: Order floor tiles', action: 'Undo' });
+document.getElementById('go').onclick = function () { P.toast(t, 'Completed: Rake the leaves', 'Undo'); };
+</script>
+</body>
+</html>

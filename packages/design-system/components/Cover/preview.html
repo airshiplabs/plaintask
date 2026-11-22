@@ -1,0 +1,57 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plaintask</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--surface); color: var(--ink); font-family: var(--font-sans); overflow: hidden; }
+  .cover { position: relative; height: 288px; overflow: hidden; }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 496px; height: 288px; }
+  .brand { fill: var(--accent); }
+  .tint { fill: var(--accent-soft); }
+  .deep { fill: var(--ink); }
+  .blk { rx: var(--radius-md); }
+  .ring { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+  .ring.done { fill: var(--accent); stroke: var(--accent); }
+  .ring.cut { stroke: var(--on-accent); }
+  .ring.cut.done { fill: var(--on-accent); stroke: var(--on-accent); }
+  .ring.inv { stroke: var(--surface); }
+  .ring.inv.done { fill: var(--surface); stroke: var(--surface); }
+  .words { position: absolute; left: var(--space-6); bottom: var(--space-6); max-width: 440px; }
+  .name { margin: 0; font-size: 80px; line-height: .92; font-weight: 650; letter-spacing: -0.03em; color: var(--ink); }
+  .tag { margin: var(--space-2) 0 0 4px; font-size: 14px; line-height: 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 496 288" width="496" height="288">
+<!--
+  blocks      accent 128×240 bled off the top (cobalt, the one action colour, largest) · accent-soft 160×200 (relief) · ink 160×232 bleeding off the right edge — ≈32% of 960×288
+  arrangement one tall cobalt slab with two satellites, bottoms on one line space-5 above the edge, space-4 gutters
+  pattern     checkbox rings: "the round checkbox is the most-used control and the app's one celebration" — size-check (22px) rings at a space-6 pitch, the lower ones ticked in accent like a list being worked through; three cut into the slab and the ink block
+  scales      sides in space-4 multiples; gutters space-4; pitch space-6; block corners radius-md; rings size-check, stroke 1.6 as the checkbox
+-->
+<rect class="brand blk" x="16" y="-16" width="128" height="280" rx="10"/>
+<circle class="ring cut done" cx="48" cy="232" r="11"/>
+<circle class="ring cut" cx="80" cy="232" r="11"/>
+<rect class="tint blk" x="160" y="64" width="160" height="200" rx="10"/>
+<circle class="ring" cx="192" cy="96" r="11"/><circle class="ring" cx="224" cy="96" r="11"/><circle class="ring" cx="256" cy="96" r="11"/><circle class="ring" cx="288" cy="96" r="11"/>
+<circle class="ring" cx="192" cy="128" r="11"/><circle class="ring" cx="224" cy="128" r="11"/><circle class="ring" cx="256" cy="128" r="11"/><circle class="ring done" cx="288" cy="128" r="11"/>
+<circle class="ring" cx="192" cy="160" r="11"/><circle class="ring done" cx="224" cy="160" r="11"/><circle class="ring" cx="256" cy="160" r="11"/><circle class="ring done" cx="288" cy="160" r="11"/>
+<circle class="ring done" cx="192" cy="192" r="11"/><circle class="ring done" cx="224" cy="192" r="11"/><circle class="ring" cx="256" cy="192" r="11"/><circle class="ring done" cx="288" cy="192" r="11"/>
+<circle class="ring done" cx="192" cy="224" r="11"/><circle class="ring done" cx="224" cy="224" r="11"/><circle class="ring done" cx="256" cy="224" r="11"/><circle class="ring done" cx="288" cy="224" r="11"/>
+<rect class="deep blk" x="336" y="32" width="176" height="232" rx="10"/>
+<circle class="ring inv done" cx="368" cy="232" r="11"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Plaintask</h1>
+<p class="tag">Tasks kept as plain Markdown files in a folder you own.</p>
+</div>
+</div>
+</body>
+</html>

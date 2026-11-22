@@ -1,0 +1,16 @@
+<!-- @dsCard group="Navigation" height=330 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>ViewHeader</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div id="s"></div>
+<script>
+var P = window.Plaintask;
+document.getElementById('s').innerHTML = P.ViewHeader({ title: 'Today', subtitle: 'Sat 21 Nov', action: { label: 'New task', variant: 'primary', icon: 'plus', kbd: 'N' } }) +
+  '<div style="display:grid;grid-template-columns:1fr 1fr">' +
+  ['ios', 'android'].map(function (p) { return '<div class="pt-root" data-platform="' + p + '">' + P.ViewHeader({ large: true, back: 'Browse', title: 'Kitchen renovation', subtitle: p === 'ios' ? 'iOS' : 'Android' }) + '</div>'; }).join('') + '</div>';
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<!-- @dsCard group="Feedback" height=360 subtitle="Click New task" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sheet</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div class="pt-sheet-host" id="h" style="height:360px"><div style="padding:16px"><button class="pt-btn pt-btn--primary" id="open" type="button">New task</button></div></div>
+<script>
+var P = window.Plaintask;
+var h = document.getElementById('h');
+h.insertAdjacentHTML('beforeend', P.Sheet({ title: 'New task', body: P.Composer({ stacked: true, idPrefix: 's' }) }));
+document.getElementById('open').onclick = function () { P.openSheet(h); };
+h.addEventListener('click', function (e) { if (e.target.closest('[data-sheet-close]') || e.target.closest('.pt-btn--ghost')) P.closeSheet(h); });
+h.querySelector('form').addEventListener('submit', function (e) { e.preventDefault(); P.closeSheet(h); });
+</script>
+</body>
+</html>

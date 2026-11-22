@@ -1,0 +1,14 @@
+<!-- @dsCard group="Tasks" height=56 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Tag</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div class="stage" id="s"></div>
+<script>
+var P = window.Plaintask;
+document.getElementById('s').innerHTML = ['call', 'errand', 'house'].map(P.Tag).join('');
+</script>
+</body>
+</html>

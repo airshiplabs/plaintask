@@ -1,0 +1,14 @@
+<!-- @dsCard group="Tasks" height=200 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>EmptyState</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div id="s"></div>
+<script>
+var P = window.Plaintask;
+document.getElementById('s').innerHTML = P.EmptyState({ title: 'All clear for today', body: 'Nothing left on Today. Enjoy the evening.' });
+</script>
+</body>
+</html>

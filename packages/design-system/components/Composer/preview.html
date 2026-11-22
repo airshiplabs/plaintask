@@ -1,0 +1,17 @@
+<!-- @dsCard group="Input" height=230 subtitle="Press Add task with no title" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Composer</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div id="s" style="padding:16px"></div>
+<script>
+var P = window.Plaintask;
+var s = document.getElementById('s');
+s.innerHTML = P.Composer({ card: true, idPrefix: 'c', projects: [['', 'No project (Inbox)'], ['kitchen', 'Kitchen renovation', true], ['garden', 'Garden']] });
+var f = s.querySelector('form');
+f.addEventListener('submit', function (e) { e.preventDefault(); var err = f.querySelector('.pt-error'); if (!f.title.value.trim()) { err.textContent = 'Give the task a name first.'; f.title.setAttribute('aria-invalid', 'true'); P.shake(f); f.title.focus(); } else { err.textContent = ''; f.title.value = ''; f.title.removeAttribute('aria-invalid'); } });
+</script>
+</body>
+</html>

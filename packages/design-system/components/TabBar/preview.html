@@ -1,0 +1,18 @@
+<!-- @dsCard group="Navigation" height=180 subtitle="Click a tab" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>TabBar</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div id="s"></div>
+<script>
+var P = window.Plaintask;
+var s = document.getElementById('s');
+var bar = P.TabBar({ tabs: [{ id: 'inbox', label: 'Inbox', icon: 'inbox' }, { id: 'today', label: 'Today', icon: 'today', current: true }, { id: 'upcoming', label: 'Upcoming', icon: 'upcoming' }, { id: 'browse', label: 'Browse', icon: 'folder' }] });
+var label = function (t) { return '<p style="margin:12px 16px 4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)">' + t + '</p>'; };
+s.innerHTML = label('iOS') + '<div class="pt-root" data-platform="ios">' + bar + '</div>' + label('Android') + '<div class="pt-root" data-platform="android">' + bar + '</div>';
+s.addEventListener('click', function (e) { var b = e.target.closest('.pt-tab'); if (!b) return; b.closest('.pt-tabbar').querySelectorAll('.pt-tab').forEach(function (x) { x.setAttribute('aria-current', x === b); }); });
+</script>
+</body>
+</html>

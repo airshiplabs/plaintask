@@ -1,0 +1,14 @@
+<!-- @dsCard group="Tasks" height=96 -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>GroupHeader</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div id="s" style="padding:0 8px 8px"></div>
+<script>
+var P = window.Plaintask;
+document.getElementById('s').innerHTML = P.GroupHeader({ label: 'Tomorrow', note: 'Sun 22 Nov' }) + '<ul>' + P.TaskRow({ id: 'a', title: 'Clear the old cabinets', project: 'Kitchen renovation' }) + '</ul>';
+</script>
+</body>
+</html>

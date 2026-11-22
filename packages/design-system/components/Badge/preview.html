@@ -1,0 +1,15 @@
+<!-- @dsCard group="Feedback" height=64 subtitle="Click Add one" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Badge</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div class="stage"><span>Today</span><span id="b"></span><button class="pt-btn" id="go" type="button">Add one</button></div>
+<script>
+var P = window.Plaintask;
+var n = 7; var host = document.getElementById('b'); host.innerHTML = P.Badge(n, 'today');
+document.getElementById('go').onclick = function () { var b = host.firstChild; b.textContent = ++n; P.bump(b); };
+</script>
+</body>
+</html>

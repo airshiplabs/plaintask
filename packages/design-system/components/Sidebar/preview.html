@@ -1,0 +1,21 @@
+<!-- @dsCard group="Navigation" height=330 subtitle="Click a list" -->
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Sidebar</title>
+<style>body { margin: 0; background: var(--surface); } .stage { padding: 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }</style>
+</head>
+<body class="pt-root">
+<div id="s" style="display:flex;height:330px"></div>
+<script>
+var P = window.Plaintask;
+var s = document.getElementById('s');
+s.innerHTML = P.Sidebar({ items: [
+  { id: 'inbox', label: 'Inbox', icon: 'inbox', count: 4 }, { id: 'today', label: 'Today', icon: 'today', count: 7, current: true },
+  { id: 'upcoming', label: 'Upcoming', icon: 'upcoming' }, { id: 'anytime', label: 'Anytime', icon: 'anytime' },
+  { id: 'someday', label: 'Someday', icon: 'someday' }, { id: 'completed', label: 'Completed', icon: 'completed' }, { id: 'trash', label: 'Trash', icon: 'trash' } ],
+  sections: [{ label: 'Home', items: [{ id: 'kitchen', label: 'Kitchen renovation' }, { id: 'garden', label: 'Garden' }] }] });
+var nav = s.querySelector('.pt-nav'); P.moveIndicator(nav);
+nav.addEventListener('click', function (e) { var b = e.target.closest('.pt-nav-item'); if (!b) return; nav.querySelectorAll('.pt-nav-item').forEach(function (x) { x.setAttribute('aria-current', x === b); }); P.moveIndicator(nav); });
+</script>
+</body>
+</html>
