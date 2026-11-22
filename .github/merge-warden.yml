@@ -1,0 +1,8 @@
+# Inherit the org settings (authors) from airshiplabs/.github.
+_extends: .github
+
+# CI that must succeed before merge-warden merges directly: the Tests job
+# and the Commit messages job.
+ci_checks:
+  - test
+  - validate
