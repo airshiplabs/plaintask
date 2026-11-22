@@ -2,3 +2,6 @@
 
 * Commit messages MUST follow conventional commits 1.0.0
 * PR bodies MUST end with the agent session footer: run the `pr-session-footer` skill (`.claude/skills/pr-session-footer/SKILL.md`)
+* Before you build, measure or test the desktop app, read `apps/desktop/README.md`: it holds the sandbox entitlements, the build and measure commands, and what a check in the real window needs
+* Every unchecked `- [ ]` box in a PR body fails the `task-list-completed` check and blocks merging. Put a box only on a step that will be done before merge; write a known miss or a deferred item as a plain bullet
+* Update a PR branch with `git rebase` onto `origin/main`, then `git push --force-with-lease`. Never merge `main` into it: a merge commit fails the `Commit messages` job
