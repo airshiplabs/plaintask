@@ -28,6 +28,8 @@
 | `build` | `is not signed for distribution` | The app was signed without a secure timestamp, or by the wrong team. Check the network and `signing-probe` in `references/setup.md`, then build again. |
 | `build` | Exit 3, notarization in progress | Run the same `build` command. It resumes at the wait and does not rebuild. A team's first submission can take hours. |
 | `build` | `notarization ... ended as Invalid` | `dist/release/<V>/notary-log.json` lists each file and message. Fix forward as for a build failure. Remove `dist/release/<V>/` before building the same commit again. |
+| `build` | Exit 3, `app notarization ... is still in progress` | The `.app` is notarized before the DMG is made, with a 60-minute wait. Run the same `build` command: it builds and submits the app again. |
+| `build` | `app notarization ... ended as Invalid` | `dist/release/<V>/app-notary-log.json` lists each file and message. Fix forward as for a build failure. |
 | `build` | `a GitHub release for desktop-v<V> exists` | A rebuild makes a different DMG than the one staged. To rebuild, undo the stage first (below). |
 | `verify` | Any check fails | Do not stage. The failed check ids are in `verify.json`. Fix the cause and build again. |
 | `stage` | Exit 3, `test` check not finished on the release commit | Run `stage` again when the check on `main` finishes. |

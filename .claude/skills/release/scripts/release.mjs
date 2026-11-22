@@ -604,7 +604,26 @@ function codesignDisplay(path) {
   return parseCodesignDisplay(run('codesign', ['-dvv', path]).stderr);
 }
 
-/** Steps 1 to 9: build the app at the release commit, package the DMG, sign it, submit it. Returns the build record. */
+/**
+ * Notarizes the .app on its own and staples its ticket, before it goes into the DMG.
+ * The DMG's ticket stays with the DMG: an app copied out of it carries no ticket of its own and fails
+ * `syspolicy_check distribution`, and Gatekeeper must reach Apple to accept it.
+ */
+function notarizeApp(app, dir, version) {
+  const zip = join(dir, `${PRODUCT_NAME}-app.zip`);
+  must('ditto', ['-c', '-k', '--keepParent', app, zip]);
+  const submitted = run('xcrun', ['notarytool', 'submit', zip, ...NOTARY_AUTH, '--wait', '--timeout', '60m', '--output-format', 'json']);
+  rmSync(zip, { force: true });
+  const result = JSON.parse(submitted.stdout || '{}');
+  if (!result.id) fail(`notarytool submit ${zip}: exit ${submitted.status}\n${submitted.stderr.trim()}`);
+  if (result.status === undefined) pending(`app notarization ${result.id} is still in progress (${result.message ?? 'no status'}); a new run builds and submits again`);
+  must('xcrun', ['notarytool', 'log', result.id, ...NOTARY_AUTH, join(dir, 'app-notary-log.json')]);
+  if (result.status !== NOTARY_ACCEPTED) fail(`app notarization ${result.id} ended as ${result.status}; dist/release/${version}/app-notary-log.json names each problem`);
+  must('xcrun', ['stapler', 'staple', app]);
+  must('xcrun', ['stapler', 'validate', app]);
+}
+
+/** Steps 1 to 9: build the app at the release commit, notarize and staple it, package the DMG, sign it, submit it. Returns the build record. */
 function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
   const identity = adhoc ? null : requireIdentity(override);
   if (adhoc) {
@@ -633,6 +652,7 @@ function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
   if (!adhoc) {
     const problems = developerIdProblems(display, identity.teamId);
     if (problems.length > 0) fail(`${APP_BUNDLE} is not signed for distribution: ${problems.join('; ')}`);
+    notarizeApp(app, dir, version);
   }
 
   const stage = join(dir, 'dmg-stage');
@@ -712,29 +732,42 @@ function plistToJson(xml) {
   return JSON.parse(must('plutil', ['-convert', 'json', '-o', '-', '-'], { input: xml }));
 }
 
-/** Starts the app's binary the way scripts/measure-launch.mjs does and waits for it to report "ready". */
-function launchProbe(binary) {
+/**
+ * Opens the app through Launch Services with PLAINTASK_MEASURE_LAUNCH=1 and waits for it to report "ready".
+ * Launch Services, not a direct exec of the binary: a Developer ID signed, sandboxed build started by exec
+ * runs but never draws its page, while the same build opened with `open` does.
+ */
+function launchProbe(app) {
   return new Promise((done) => {
     const started = Date.now();
-    const child = spawn(binary, [], { env: { ...process.env, PLAINTASK_MEASURE_LAUNCH: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let err = '';
+    const logs = mkdtempSync(join(tmpdir(), 'plaintask-launch-'));
+    const outFile = join(logs, 'stdout.txt');
+    const errFile = join(logs, 'stderr.txt');
+    writeFileSync(outFile, '');
+    writeFileSync(errFile, '');
+    const read = (file) => readFileSync(file, 'utf8').trim();
+    const child = spawn('open', ['-W', '-n', '--env', 'PLAINTASK_MEASURE_LAUNCH=1', '--stdout', outFile, '--stderr', errFile, app], { stdio: 'ignore' });
     let settled = false;
     const settle = (ready, detail) => {
       if (settled) return;
       settled = true;
+      clearInterval(poll);
       clearTimeout(timer);
+      // The app quits itself after its first frame; one still running (no frame while the screen is locked) is stopped here.
+      run('pkill', ['-f', join(app, APP_BINARY)]);
       child.kill();
+      rmSync(logs, { recursive: true, force: true });
       done({ ready, detail });
     };
-    const timer = setTimeout(() => settle(false, `no "ready" within ${LAUNCH_LIMIT_MS} ms; stderr: ${err.trim()}`), LAUNCH_LIMIT_MS);
-    child.stderr.on('data', (data) => { err += data; });
-    child.stdout.on('data', (data) => {
-      out += data;
-      if (out.includes('ready')) settle(true, `"ready" after ${Date.now() - started} ms`);
+    const poll = setInterval(() => {
+      if (read(outFile).includes('ready')) settle(true, `"ready" after ${Date.now() - started} ms`);
+    }, 50);
+    const timer = setTimeout(() => settle(false, `no "ready" within ${LAUNCH_LIMIT_MS} ms; stderr: ${read(errFile)}`), LAUNCH_LIMIT_MS);
+    child.once('error', (error) => settle(false, `open did not start: ${error.code}`));
+    child.once('exit', (code) => {
+      if (read(outFile).includes('ready')) settle(true, `"ready" after ${Date.now() - started} ms`);
+      else settle(false, `the app exited (open: ${code}) before "ready"; stderr: ${read(errFile)}`);
     });
-    child.once('error', (error) => settle(false, `the app did not start: ${error.code}`));
-    child.once('exit', (code) => settle(false, `the app exited with ${code} before "ready"; stderr: ${err.trim()}`));
   });
 }
 
@@ -759,7 +792,7 @@ async function gatherFacts(dir, dmg, adhoc) {
       bundleVersion: hasApp ? plistValue(join(app, 'Contents/Info.plist'), 'CFBundleShortVersionString') : null,
       bundleBuild: hasApp ? plistValue(join(app, 'Contents/Info.plist'), 'CFBundleVersion') : null,
       archs: hasApp ? run('lipo', ['-archs', join(app, APP_BINARY)]).stdout.trim() : null,
-      launch: hasApp ? await launchProbe(join(app, APP_BINARY)) : { ready: false, detail: 'no app to launch' },
+      launch: hasApp ? await launchProbe(app) : { ready: false, detail: 'no app to launch' },
       notaryLog: notaryLog && { status: notaryLog.status, issues: notaryLog.issues ?? null },
     };
   } finally {
