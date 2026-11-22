@@ -152,6 +152,18 @@ export function assessArtifact(facts, expected) {
   return { ok: checks.every((check) => check.ok), checks };
 }
 
+/**
+ * What Apple's notary service rejects in an app signature, found from `codesign` facts before upload. [] when nothing.
+ * `syspolicy_check notary-submission` cannot do this: it asks Gatekeeper, which rejects every app that is not notarized yet.
+ */
+export function notarizationProblems(display, entitlements, teamId) {
+  return [
+    !display.flags.includes('runtime') && 'signed without the hardened runtime',
+    ...developerIdProblems(display, teamId),
+    Object.hasOwn(entitlements, DEBUG_ENTITLEMENT) && `${DEBUG_ENTITLEMENT} marks a debug build`,
+  ].filter(Boolean);
+}
+
 /** What stops a signature from being a timestamped Developer ID signature by team `teamId`. [] when nothing does. */
 export function developerIdProblems(display, teamId) {
   return [

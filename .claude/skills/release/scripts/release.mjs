@@ -27,7 +27,7 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-  assessArtifact, CHECKSUMS_NAME, checksumLine, developerIdProblems, DMG_IDENTIFIER, dmgName, parseCodesignDisplay,
+  assessArtifact, CHECKSUMS_NAME, checksumLine, DMG_IDENTIFIER, dmgName, notarizationProblems, parseCodesignDisplay,
   pickIdentity, PRODUCT_NAME, SIGNATURE, tauriEnv,
 } from './artifact.mjs';
 import { appendFooter, sessionFooter } from '../../pr-session-footer/session-footer.mjs';
@@ -650,8 +650,9 @@ function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
   const display = codesignDisplay(app);
   if (!display.flags.includes('runtime')) fail(`${APP_BUNDLE} is signed without the hardened runtime`);
   if (!adhoc) {
-    const problems = developerIdProblems(display, identity.teamId);
-    if (problems.length > 0) fail(`${APP_BUNDLE} is not signed for distribution: ${problems.join('; ')}`);
+    const entitlements = plistToJson(must('codesign', ['-d', '--entitlements', '-', '--xml', app]));
+    const problems = notarizationProblems(display, entitlements, identity.teamId);
+    if (problems.length > 0) fail(`${APP_BUNDLE} would fail notarization: ${problems.join('; ')}`);
     notarizeApp(app, dir, version);
   }
 

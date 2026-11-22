@@ -2,7 +2,7 @@
 //   node --test artifact.test.mjs     (run from this directory)
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assessArtifact, checksumLine, dmgName, entitlementProblems, parseCodesignDisplay, pickIdentity, tauriEnv } from './artifact.mjs';
+import { assessArtifact, checksumLine, dmgName, entitlementProblems, notarizationProblems, parseCodesignDisplay, pickIdentity, tauriEnv } from './artifact.mjs';
 
 const HASH_A = 'A'.repeat(40);
 const HASH_B = 'B'.repeat(40);
@@ -64,6 +64,22 @@ test('entitlementProblems names missing, changed, extra, and debug entitlements'
   ]);
   assert.deepEqual(entitlementProblems(ENTITLEMENTS, { ...ENTITLEMENTS, 'com.apple.security.get-task-allow': true }), [
     'unexpected com.apple.security.get-task-allow', 'com.apple.security.get-task-allow marks a debug build',
+  ]);
+});
+
+test('notarizationProblems passes a release signature that is not notarized yet', () => {
+  assert.deepEqual(notarizationProblems(parseCodesignDisplay(DEVELOPER_ID_DISPLAY), ENTITLEMENTS, 'AB12CD34EF'), []);
+});
+
+test('notarizationProblems names each notary rule a signature breaks', () => {
+  const display = parseCodesignDisplay(DEVELOPER_ID_DISPLAY);
+  assert.deepEqual(notarizationProblems({ ...display, flags: [] }, ENTITLEMENTS, 'AB12CD34EF'), ['signed without the hardened runtime']);
+  assert.deepEqual(notarizationProblems({ ...display, timestamp: null }, ENTITLEMENTS, 'AB12CD34EF'), ['no secure timestamp']);
+  assert.deepEqual(notarizationProblems(display, { ...ENTITLEMENTS, 'com.apple.security.get-task-allow': true }, 'AB12CD34EF'), [
+    'com.apple.security.get-task-allow marks a debug build',
+  ]);
+  assert.deepEqual(notarizationProblems(parseCodesignDisplay(ADHOC_DISPLAY), ENTITLEMENTS, 'AB12CD34EF'), [
+    'signature is ad-hoc', 'first authority is absent', 'no secure timestamp', 'team is null, expected AB12CD34EF',
   ]);
 });
 

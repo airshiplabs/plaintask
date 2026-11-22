@@ -25,7 +25,7 @@
 | `pr` | The `test` check failed on the pull request | Fix the cause on the release branch with a new signed commit and push. Do not amend and force-push. Run `pr` again: it finds the open pull request and waits for the check. |
 | `pr` | Pull request conflicts with `main` | Rebase the release branch onto `origin/main` (no merge commit), push, run `pr` again. |
 | `build` | `pnpm` or `cargo` failed | Fix forward through a normal pull request. Do not revert the release pull request. Then `R build --version <V> --sha <new origin/main commit>`. The version is not used up: no tag exists yet. |
-| `build` | `is not signed for distribution` | The app was signed without a secure timestamp, or by the wrong team. Check the network and `signing-probe` in `references/setup.md`, then build again. |
+| `build` | `would fail notarization` | The message names each problem. No secure timestamp or the wrong team: check the network and `signing-probe` in `references/setup.md`. No hardened runtime or `com.apple.security.get-task-allow`: the build was not a release build. Then build again. |
 | `build` | Exit 3, notarization in progress | Run the same `build` command. It resumes at the wait and does not rebuild. A team's first submission can take hours. |
 | `build` | `notarization ... ended as Invalid` | `dist/release/<V>/notary-log.json` lists each file and message. Fix forward as for a build failure. Remove `dist/release/<V>/` before building the same commit again. |
 | `build` | Exit 3, `app notarization ... is still in progress` | The `.app` is notarized before the DMG is made, with a 60-minute wait. Run the same `build` command: it builds and submits the app again. |
