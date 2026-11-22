@@ -27,7 +27,7 @@ Run from the repo root.
 | `pnpm --filter @plaintask/desktop app` | Builds `src-tauri/target/release/bundle/macos/Plaintask.app`: sandboxed, ad-hoc signed |
 | `pnpm --filter @plaintask/desktop typecheck` | Type-checks `src/` |
 | `pnpm test` | Runs the task file rules and the page tests with the repo's other tests |
-| `cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml` | Runs the Rust layer's file and folder tests (not in CI) |
+| `pnpm --filter @plaintask/desktop check:rust` | Runs clippy on the Rust layer with warnings as errors, then its file and folder tests. CI runs it on macOS when `src-tauri/` changes (`.github/workflows/desktop-rust.yml`) |
 | `pnpm --filter @plaintask/desktop measure` | Times launches of the built app |
 
 ## Layout
