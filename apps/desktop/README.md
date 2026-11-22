@@ -29,6 +29,7 @@ Run from the repo root.
 | `pnpm test` | Runs the task file rules and the page tests with the repo's other tests |
 | `pnpm --filter @plaintask/desktop check:rust` | Runs clippy on the Rust layer with warnings as errors, then its file and folder tests. CI runs it on macOS when `src-tauri/` changes (`.github/workflows/desktop-rust.yml`) |
 | `pnpm --filter @plaintask/desktop measure` | Times launches of the built app |
+| `node .claude/skills/release/scripts/release.mjs build --version <V> --adhoc` | Builds an ad-hoc-signed `dist/release/<V>-adhoc/Plaintask_<V>_aarch64.dmg` to rehearse a release. The `release` skill makes the signed, notarized one |
 
 ## Layout
 
