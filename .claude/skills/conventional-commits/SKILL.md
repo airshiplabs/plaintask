@@ -31,7 +31,12 @@ printf '%s\n' 'feat(app): add the checkout banner' | node .claude/skills/convent
 <type>[(<scope>)][!]: <description>
 ```
 
-The spec does not fix the list of types. Any type passes when it holds no whitespace, `(`, `!`, or `:`. Types are not case-sensitive, so `FEAT: x` passes.
+This repo is stricter than the spec: the type and the scope must each match an allowlist exactly, in lowercase. `TYPES` and `SCOPES` in `conventional-commits.mjs` hold the lists. The scope stays optional.
+
+- Types: `build`, `chore`, `ci`, `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `test`.
+- Scopes: `app`, `deps`, `design`, `desktop`, `mobile`, `sites`, `sync`.
+
+To allow a new type or scope, add it to `TYPES` or `SCOPES` and to the lists above.
 
 ## Rules
 
@@ -39,7 +44,9 @@ The spec does not fix the list of types. Any type passes when it holds no whites
 |---|---|---|
 | `message-empty` | The message has no lines after cleanup. | Write a header. |
 | `header-type` | The header does not start with a type followed directly by `(`, `!`, or `:`. | Start with a type, such as `feat`, then an optional `(scope)`, an optional `!`, then `: `. |
+| `header-type-enum` | The type is not in `TYPES`. Case counts, so `FEAT` fails. | Use one of the types above. |
 | `header-scope` | A `(` follows the type, and no `)` closes it, or the scope is empty or holds whitespace or `(`. | Put a non-empty scope with no spaces inside the parentheses, or remove the parentheses. |
+| `header-scope-enum` | The scope is well formed but not in `SCOPES`. | Use one of the scopes above, or drop the `(scope)`. |
 | `header-separator` | The character after the type, scope, and `!` is not `:`, or a character other than one space follows the `:`. | Put `: ` (a colon and one space) directly after the type, scope, and `!`. |
 | `header-description` | Nothing follows the `:`, or the text after `: ` starts with whitespace. | Write the description directly after `: `. |
 | `body-leading-blank` | The message has a second line, and that line is not empty. | Leave one blank line between the header and the body or footers. |

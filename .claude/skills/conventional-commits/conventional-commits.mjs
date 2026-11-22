@@ -1,10 +1,18 @@
 // conventional-commits.mjs - validateMessage, a pure Conventional Commits 1.0.0 check of one commit message.
 // No I/O and no globals; validate.mjs is the command-line front end.
 
+/** The only types a header may use. Exact, lowercase match. Add a type here, in its own commit. */
+export const TYPES = Object.freeze(['build', 'chore', 'ci', 'docs', 'feat', 'fix', 'perf', 'refactor', 'revert', 'test']);
+
+/** The only scopes a header may use. A scope stays optional. Exact, lowercase match. Add a scope here, in its own commit. */
+export const SCOPES = Object.freeze(['app', 'deps', 'design', 'desktop', 'mobile', 'sites', 'sync']);
+
 const RULES = Object.freeze({
   messageEmpty: 'message-empty',
   headerType: 'header-type',
+  headerTypeEnum: 'header-type-enum',
   headerScope: 'header-scope',
+  headerScopeEnum: 'header-scope-enum',
   headerSeparator: 'header-separator',
   headerDescription: 'header-description',
   bodyLeadingBlank: 'body-leading-blank',
@@ -14,6 +22,8 @@ const RULES = Object.freeze({
 const MESSAGES = Object.freeze({
   [RULES.messageEmpty]: 'the message is empty after cleanup',
   [RULES.headerType]: 'start with a type, an optional (scope), an optional "!", then ": "',
+  [RULES.headerTypeEnum]: `use one of these types: ${TYPES.join(', ')}`,
+  [RULES.headerScopeEnum]: `use one of these scopes, or no scope: ${SCOPES.join(', ')}`,
   [RULES.headerScope]: 'put a non-empty scope with no spaces inside the parentheses',
   [RULES.headerSeparator]: 'put ": " (a colon and one space) after the type, scope, and "!"',
   [RULES.headerDescription]: 'write the description directly after ": "',
@@ -121,11 +131,13 @@ function headerViolation(header) {
   let i = 0;
   while (i < header.length && !WHITESPACE.test(header[i]) && !TYPE_TERMINATORS.has(header[i])) i++;
   if (i === 0 || !TYPE_TERMINATORS.has(header[i])) return RULES.headerType;
+  if (!TYPES.includes(header.slice(0, i))) return RULES.headerTypeEnum;
 
   if (header[i] === SCOPE_OPEN) {
     const scopeStart = ++i;
     while (i < header.length && !WHITESPACE.test(header[i]) && !SCOPE_FORBIDDEN.has(header[i])) i++;
     if (i === scopeStart || header[i] !== SCOPE_CLOSE) return RULES.headerScope;
+    if (!SCOPES.includes(header.slice(scopeStart, i))) return RULES.headerScopeEnum;
     i++;
   }
 

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { validateMessage } from './conventional-commits.mjs';
+import { SCOPES, TYPES, validateMessage } from './conventional-commits.mjs';
 
 const cliPath = fileURLToPath(new URL('./validate.mjs', import.meta.url));
 
@@ -26,23 +26,31 @@ test('validateMessage returns the header rule for each header', () => {
   const rows = [
     // Conforming headers (3-prd.md:20-23).
     { text: 'feat: add x', expected: [] },
-    { text: 'feat(scope): add x', expected: [] },
+    { text: 'feat(app): add x', expected: [] },
     { text: 'fix!: x', expected: [] },
-    { text: 'feat(scope)!: x', expected: [] },
-    { text: 'FEAT: x', expected: [] },
-    // D7 character sets: one-character tokens, digits in the type, any non-space scope.
-    { text: 'a: x', expected: [] },
-    { text: 'feat(a): x', expected: [] },
-    { text: 'i18n: x', expected: [] },
-    { text: 'a11y: x', expected: [] },
-    { text: 'feat(API): x', expected: [] },
-    { text: 'feat(api/v2): x', expected: [] },
-    { text: 'feat(sites/plaintask.app): x', expected: [] },
-    // Dependabot subjects (3-prd.md:66), the squash-merge suffix, and the D7 typo-type trade-off.
+    { text: 'feat(app)!: x', expected: [] },
+    // Every allowed type and every allowed scope passes.
+    ...TYPES.map((type) => ({ text: `${type}: x`, expected: [] })),
+    ...SCOPES.map((scope) => ({ text: `feat(${scope}): x`, expected: [] })),
+    // Dependabot subjects (.github/dependabot.yml prefixes) and the squash-merge suffix.
     { text: 'chore(deps): Bump stripe from 20.4.1 to 23.1.0', expected: [] },
     { text: 'ci(deps): Bump the actions group with 3 updates', expected: [] },
     { text: 'feat: add dark mode (#27)', expected: [] },
-    { text: 'feat;: x', expected: [] },
+    // header-type-enum: a type outside TYPES, including case variants and typos.
+    { text: 'FEAT: x', expected: [{ rule: 'header-type-enum', line: 1, text: 'FEAT: x' }] },
+    { text: 'Feat: x', expected: [{ rule: 'header-type-enum', line: 1, text: 'Feat: x' }] },
+    { text: 'feat;: x', expected: [{ rule: 'header-type-enum', line: 1, text: 'feat;: x' }] },
+    { text: 'wip: x', expected: [{ rule: 'header-type-enum', line: 1, text: 'wip: x' }] },
+    { text: 'style: x', expected: [{ rule: 'header-type-enum', line: 1, text: 'style: x' }] },
+    { text: 'feature(app): x', expected: [{ rule: 'header-type-enum', line: 1, text: 'feature(app): x' }] },
+    { text: 'fixup! wip: x', expected: [{ rule: 'header-type-enum', line: 1, text: 'wip: x' }] },
+    // header-scope-enum: a well-formed scope outside SCOPES, including case variants and paths.
+    { text: 'feat(a): x', expected: [{ rule: 'header-scope-enum', line: 1, text: 'feat(a): x' }] },
+    { text: 'feat(APP): x', expected: [{ rule: 'header-scope-enum', line: 1, text: 'feat(APP): x' }] },
+    { text: 'feat(sites/plaintask.app): x', expected: [{ rule: 'header-scope-enum', line: 1, text: 'feat(sites/plaintask.app): x' }] },
+    { text: 'docs(principles)!: x', expected: [{ rule: 'header-scope-enum', line: 1, text: 'docs(principles)!: x' }] },
+    // A bad type is reported before a bad scope.
+    { text: 'wip(nope): x', expected: [{ rule: 'header-type-enum', line: 1, text: 'wip(nope): x' }] },
     // Whitespace cleanup: no trailing newline, CRLF, a --cleanup=verbatim commit, no length limit.
     { text: 'docs: a header with no trailing newline', expected: [] },
     { text: 'feat: add x\r\n', expected: [] },
@@ -103,6 +111,8 @@ test('validate.mjs exits 0, 1, or 2 and reports on stderr', async (t) => {
     { name: 'non-conforming file', args: [failFile], status: 1, stderr: [/header-type/, /line 1:/, /Add pricing page/] },
     { name: 'stdin, bad scope', args: ['-'], input: 'feat(): x', status: 1, stderr: [/header-scope/] },
     { name: 'stdin, conforming', args: ['-'], input: 'feat: x', status: 0, stderr: [/^$/] },
+    { name: 'stdin, unknown type lists TYPES', args: ['-'], input: 'wip: x', status: 1, stderr: [/header-type-enum/, literally(TYPES.join(', '))] },
+    { name: 'stdin, unknown scope lists SCOPES', args: ['-'], input: 'feat(nope): x', status: 1, stderr: [/header-scope-enum/, literally(SCOPES.join(', '))] },
     { name: '0-byte file', args: [emptyFile], status: 1, stderr: [/message-empty/] },
     { name: 'empty stdin', args: ['-'], input: '', status: 1, stderr: [/message-empty/] },
     { name: 'invalid UTF-8 decodes to U+FFFD', args: [badUtf8File], status: 1, stderr: [/header-separator/, /fix:�x/] },
