@@ -48,9 +48,10 @@ const stop = async child => {
   await once(child, 'exit');
 };
 
-/** Serves one site (app | sh | ai) on a spare port and opens it in a width x height viewport.
+/** Serves one site (app | sh | ai, or a folder of the repo such as apps/desktop/dist) on a spare port and opens it
+    in a width x height viewport. `before` is JavaScript that runs in the page ahead of the page's own scripts.
     Everything started here is stopped and removed when the test ends, whatever its outcome. */
-export async function openSite(t, site, width, height) {
+export async function openSite(t, site, width, height, { before } = {}) {
   await access(CHROME).catch(() => { throw new Error('Chrome not found at "' + CHROME + '": set the CHROME environment variable to a Chrome or Chromium binary'); });
   const undo = [];   // newest first: the profile goes only after Chrome has exited
   t.after(async () => { for (const step of undo) await step(); });
@@ -98,7 +99,10 @@ export async function openSite(t, site, width, height) {
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   // the scenes rest under reduced motion: the machine's own setting must not decide the test
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
+  // a headless page does not hold the keyboard, and a page without it gets no focus or blur events: tests of leaving a field need them
+  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
   await send('Page.enable');
+  if (before) await send('Page.addScriptToEvaluateOnNewDocument', { source: before });
   const load = new Promise(res => { loaded = res; });
   await send('Page.navigate', { url: 'http://127.0.0.1:' + port + '/' });
   await load;

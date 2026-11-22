@@ -1,0 +1,459 @@
+// desktop-app.test.mjs - the desktop app's page (apps/desktop) in a real browser, as a person uses it: the built page,
+// unchanged, with the Rust layer replaced by a folder held in memory. Tauri's page-side API calls
+// window.__TAURI_INTERNALS__.invoke(command, args); the stand-in below answers the same commands src-tauri/src/main.rs does.
+//   node --test "tests/*.test.mjs"     (CHROME=/path/to/chrome for a Chrome somewhere else)
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { before, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { openSite } from './browser.mjs';
+
+before(() => { execFileSync(process.execPath, [fileURLToPath(new URL('../apps/desktop/build.mjs', import.meta.url))], { stdio: 'inherit' }); });
+
+/** A value written into the JavaScript these tests run in the page: JSON, with the characters JSON leaves alone but
+    script source must not carry raw (a tag's brackets and slash, the two Unicode line ends) written as escapes. */
+const ESCAPES = { '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\u2028': '\\u2028', '\u2029': '\\u2029' };
+const js = value => JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, c => ESCAPES[c]);
+
+/** Opens the app on a folder. `folder` null means none is chosen yet; `inbox` is the text of its Inbox.md ('' for no file);
+    `pick` is the folder the open panel will return; `folderError`, `readError` and `writeError` make finding the folder, reading the file or saving it fail with that message. */
+function openApp(t, { folder = '/Users/test/Tasks', inbox = '', pick = null, folderError = null, readError = null, writeError = null } = {}) {
+  const standIn = `window.__disk = ${js({ folder, inbox, pick, folderError, readError, writeError, writes: [], calls: [] })};
+    window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+      const disk = window.__disk;
+      disk.calls.push(command);
+      if (command === 'folder') { if (disk.folderError) throw disk.folderError; return disk.folder; }
+      if (command === 'choose_folder') { if (disk.pick) disk.folder = disk.pick; return disk.pick; }
+      if (command === 'read_inbox') { if (disk.readError) throw disk.readError; return disk.inbox; }
+      if (command === 'write_inbox') { if (disk.writeError) throw disk.writeError; disk.inbox = args.text; disk.writes.push(args.text); return null; }
+      if (command === 'ready' || command === 'first_frame') return null;
+      throw new Error('the page asked for a command the app does not have: ' + command);
+    } };`;
+  return openSite(t, 'apps/desktop/dist', 880, 620, { before: standIn });
+}
+
+const TEXT = selector => `document.querySelector(${js(selector)})?.innerText ?? null`;
+const ROWS = '[...document.querySelectorAll("[data-list] .pt-task__title")].map(e => e.textContent)';
+const DRAWN = 'window.__disk.calls.includes("ready")';
+const click = selector => `document.querySelector(${js(selector)}).click()`;
+/** a key pressed wherever keyboard focus is */
+const press = key => `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ${js(key)}, bubbles: true, cancelable: true }))`;
+/** text typed into the new-task field */
+const type = text => `(() => { const field = document.querySelector('[data-composer] input'); field.value = ${js(text)}; field.dispatchEvent(new Event('input', { bubbles: true })); })()`;
+/** Return in the new-task field: the browser submits a form on Return, which a made-up key event does not */
+const RETURN = 'document.querySelector("[data-composer] form").requestSubmit()';
+const COMPOSER_OPEN = '(c => !c.inert && !c.classList.contains("is-leaving"))(document.querySelector("[data-composer]"))';
+const FOCUS = '(e => e.tagName + (e.name ? "[" + e.name + "]" : "") + (e.closest("[data-head]") ? " in header" : ""))(document.activeElement)';
+const WRITES = 'window.__disk.writes';
+
+test('with no folder chosen, the app asks for one and shows the Inbox once it is picked', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { folder: null, pick: '/Users/test/Tasks', inbox: '- [ ] Buy milk\n' });
+  assert.ok(await page.poll(DRAWN), 'precondition: the page never asked for its window');
+  assert.equal(await page.evaluate(TEXT('[data-list] strong')), 'Choose a folder for your tasks');
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose folder');
+  assert.deepEqual(await page.evaluate('window.__disk.calls.filter(c => c === "read_inbox")'), [], 'no file should be read before a folder is chosen');
+
+  await page.evaluate(click('[data-list] .pt-btn'));
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'after picking a folder the list should show its Inbox');
+});
+
+test('picking a folder with no Inbox.md replaces the request with the empty state', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { folder: null, pick: '/Users/test/Tasks', inbox: '' });
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Choose a folder for your tasks', 'precondition: the app did not ask for a folder');
+  await page.evaluate(click('[data-list] .pt-btn'));
+  assert.equal(await page.poll(TEXT('[data-list] strong'), text => text === 'Inbox zero'), 'Inbox zero');
+  assert.equal(await page.evaluate('document.querySelector("[data-list] [data-choose]")'), null, 'the Choose folder button should be gone');
+  assert.equal(await page.evaluate('document.querySelector("[data-head] .pt-btn").textContent.trim()'), 'New task N');
+});
+
+test('cancelling the folder panel leaves the app asking for a folder', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { folder: null, pick: null });
+  assert.ok(await page.poll(DRAWN), 'precondition: the page never asked for its window');
+  await page.evaluate(click('[data-list] .pt-btn'));
+  assert.ok(await page.poll('window.__disk.calls.includes("choose_folder")'), 'precondition: the button did not open the folder panel');
+  assert.equal(await page.evaluate(TEXT('[data-list] strong')), 'Choose a folder for your tasks');
+});
+
+test('a folder with no Inbox.md shows the empty state and nothing is written to it', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '' });
+  assert.equal(await page.poll(TEXT('[data-list] .pt-empty strong')), 'Inbox zero');
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-empty span:last-child')), 'New tasks you capture land here first.');
+  assert.equal(await page.evaluate(TEXT('.pt-view-h h2')), 'Inbox');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '', 'an empty Inbox shows no count');
+  assert.deepEqual(await page.evaluate('window.__disk.writes'), [], 'opening a folder must not create or change Inbox.md');
+});
+
+test('the list is the file\'s open tasks, in file order, and the sidebar counts them', { timeout: 60000 }, async t => {
+  const inbox = '---\ntags:\n- [ ] a YAML item, not a task\n---\n# Inbox\n\n- [ ] Order floor tiles due:2026-11-28 #call\n  - [ ] Measure the hallway\n- [x] Call the tiler\n- [ ] <b>Paint</b> & "prime"\n';
+  const page = await openApp(t, { inbox });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Order floor tiles due:2026-11-28 #call', '<b>Paint</b> & "prime"'],
+    'only open tasks at the left margin are rows; a title is shown as written, never run as HTML');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-check").getAttribute("aria-label")'), 'Complete: Order floor tiles due:2026-11-28 #call');
+});
+
+test('a task typed into the file in another editor shows when the window is used again', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the first task did not show');
+  await page.evaluate('window.__disk.inbox = "- [ ] Buy milk\\n- [ ] Typed in Vim\\n"; window.dispatchEvent(new Event("focus"))');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 1), ['Buy milk', 'Typed in Vim']);
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+});
+
+test('a file that cannot be read says why and offers another folder', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { readError: '/Users/test/Tasks/Inbox.md is not UTF-8 text, so Plaintask will not change it.' });
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open Inbox.md');
+  assert.match(await page.evaluate(TEXT('[data-list] .pt-empty')), /is not UTF-8 text, so Plaintask will not change it\./);
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose another folder');
+});
+
+test('a folder choice that cannot be recalled says why and offers the folder panel', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { folderError: 'Could not read the folder choice in /Users/test/Library: Permission denied' });
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open your task folder');
+  assert.match(await page.evaluate(TEXT('[data-list] .pt-empty')), /Could not read the folder choice in \/Users\/test\/Library: Permission denied/);
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose folder');
+  assert.ok(await page.poll(DRAWN), 'the window should still be asked for, so the message can be seen');
+});
+
+// ---- adding a task ----
+
+test('N opens the new-task form, Return adds the task as the last line of the file and the last row', { timeout: 60000 }, async t => {
+  const inbox = '# Inbox\n\n- [ ] Buy milk\n- [x] Done already\n';
+  const page = await openApp(t, { inbox });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the first task did not show');
+  assert.equal(await page.evaluate('document.querySelector("[data-head] .pt-btn").textContent.trim()'), 'New task N', 'the header\'s button should name the action and its key');
+  assert.equal(await page.evaluate(COMPOSER_OPEN), false, 'the form starts closed and out of the Tab order');
+
+  await page.evaluate(press('n'));
+  assert.equal(await page.poll(COMPOSER_OPEN), true, 'N should open the form');
+  assert.equal(await page.evaluate(FOCUS), 'INPUT[title]', 'the task field should have the keyboard');
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] input").placeholder'), 'e.g. Call the tiler');
+
+  await page.evaluate(type('  Order floor tiles  '));
+  await page.evaluate(RETURN);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 1), ['Buy milk', 'Order floor tiles']);
+  assert.deepEqual(await page.evaluate(WRITES), [inbox + '- [ ] Order floor tiles\n'], 'the file should gain one line and keep every other byte');
+  assert.equal(await page.evaluate(COMPOSER_OPEN), false, 'the form should close after adding');
+  assert.equal(await page.evaluate(FOCUS), 'BUTTON in header', 'the keyboard should return to the New task button');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.evaluate('document.querySelector("[data-list] li:last-child .pt-task").classList.contains("is-entering")'), true, 'the new row should play the enter animation');
+});
+
+test('the first task added to an empty Inbox replaces the empty state and creates the file', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '' });
+  assert.equal(await page.poll(TEXT('[data-list] .pt-empty strong')), 'Inbox zero', 'precondition: the empty state did not show');
+  await page.evaluate(click('[data-head] .pt-btn'));
+  await page.evaluate(type('Buy milk'));
+  await page.evaluate(RETURN);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk']);
+  assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-empty")'), null, 'the empty state should be gone');
+  assert.deepEqual(await page.evaluate(WRITES), ['- [ ] Buy milk\n']);
+});
+
+test('Return with no title keeps the form open, says what to do and writes nothing', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.ok(await page.poll(DRAWN), 'precondition: the page never asked for its window');
+  await page.evaluate(press('n'));
+  await page.evaluate(type('   '));
+  await page.evaluate(RETURN);
+  assert.equal(await page.poll(TEXT('[data-composer] .pt-error')), 'Give the task a name first.');
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] input").getAttribute("aria-invalid")'), 'true');
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] form").classList.contains("is-shaking")'), true, 'the form should shake');
+  assert.equal(await page.evaluate(COMPOSER_OPEN), true);
+  assert.equal(await page.evaluate(FOCUS), 'INPUT[title]');
+  assert.deepEqual(await page.evaluate(WRITES), []);
+
+  await page.evaluate(type('B'));
+  assert.equal(await page.evaluate(TEXT('[data-composer] .pt-error')), '', 'typing should clear the message');
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] input").getAttribute("aria-invalid")'), null);
+});
+
+test('Escape and Cancel close the form without adding, and N typed in the field is a letter', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.ok(await page.poll(DRAWN), 'precondition: the page never asked for its window');
+  await page.evaluate(press('N'));
+  assert.equal(await page.poll(COMPOSER_OPEN), true, 'precondition: N did not open the form');
+  await page.evaluate(type('Not yet'));
+  assert.equal(await page.evaluate(press('n')), true, 'N pressed in the field should be left to the field (not cancelled)');
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] input").value'), 'Not yet', 'the half-typed title should still be there');
+  await page.evaluate(press('Escape'));
+  assert.equal(await page.poll(COMPOSER_OPEN, open => !open), false, 'Escape should close the form');
+  assert.equal(await page.evaluate(FOCUS), 'BUTTON in header');
+
+  await page.evaluate(press('n'));
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] input").value'), '', 'the form should open empty the next time');
+  await page.evaluate(click('[data-composer] .pt-btn--ghost'));
+  assert.equal(await page.poll(COMPOSER_OPEN, open => !open), false, 'Cancel should close the form');
+  assert.deepEqual(await page.evaluate(WRITES), []);
+  assert.deepEqual(await page.evaluate(ROWS), ['Buy milk']);
+});
+
+test('adding a task keeps what another editor wrote to the file since the app last read it', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the first task did not show');
+  await page.evaluate('window.__disk.inbox = "# Shopping\\r\\n- [ ] Buy milk\\r\\n- [ ] Typed in Vim\\r\\n"');
+  await page.evaluate(press('n'));
+  await page.evaluate(type('Added in the app'));
+  await page.evaluate(RETURN);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 2), ['Buy milk', 'Typed in Vim', 'Added in the app']);
+  assert.deepEqual(await page.evaluate(WRITES), ['# Shopping\r\n- [ ] Buy milk\r\n- [ ] Typed in Vim\r\n- [ ] Added in the app\r\n']);
+});
+
+test('a task that cannot be saved is not shown as added, and a toast says why', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n', writeError: 'Could not save /Users/test/Tasks/Inbox.md: Permission denied' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the first task did not show');
+  await page.evaluate(press('n'));
+  await page.evaluate(type('Order floor tiles'));
+  await page.evaluate(RETURN);
+  assert.equal(await page.poll(TEXT('[data-toasts] .pt-toast')), 'Could not save /Users/test/Tasks/Inbox.md: Permission denied');
+  assert.deepEqual(await page.evaluate(ROWS), ['Buy milk']);
+  assert.equal(await page.evaluate(COMPOSER_OPEN), true, 'the form should stay open with the title, so nothing typed is lost');
+  assert.equal(await page.evaluate('document.querySelector("[data-composer] input").value'), 'Order floor tiles');
+});
+
+// ---- ticking a task ----
+
+const tick = n => `document.querySelectorAll("[data-list] li:not([data-leaving]) .pt-check")[${n}].click()`;
+/** the titles of the rows that are staying: a ticked row is still drawn for a second while it folds away */
+const STAYING = '[...document.querySelectorAll("[data-list] li:not([data-leaving]) .pt-task__title")].map(e => e.textContent)';
+const TOAST = '[...document.querySelectorAll("[data-toasts] .pt-toast")].map(e => e.querySelector("span").textContent)';
+const FOCUSED_ROW = 'document.activeElement.closest("[data-list] li")?.querySelector(".pt-task__title").textContent ?? null';
+const THREE = '# Inbox\r\n\r\n- [ ] Buy milk\r\n- [ ] Call mum\r\n  - [ ] a subtask the app leaves alone\r\n- [ ] Water plants\r\n';
+
+test('ticking a task changes one character of the file at once, celebrates, folds the row away and offers Undo', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 3), ['Buy milk', 'Call mum', 'Water plants'], 'precondition: the three tasks did not show');
+
+  await page.evaluate(tick(1));
+  assert.deepEqual(await page.poll(WRITES, w => w.length > 0), [THREE.replace('- [ ] Call mum', '- [x] Call mum')], 'the file should be saved before the row has folded away, with only the one mark changed');
+  assert.deepEqual(await page.evaluate('(row => [row.classList.contains("is-done"), row.querySelector(".pt-check").getAttribute("aria-checked"), row.querySelector(".pt-check").classList.contains("is-celebrating")])(document.querySelectorAll("[data-list] .pt-task")[1])'),
+    [true, 'true', true], 'the row should be struck through, its checkbox ticked and celebrating, while it is still on screen');
+  assert.deepEqual(await page.evaluate(TOAST), ['Completed: Call mum']);
+  assert.equal(await page.evaluate(TEXT('[data-toasts] .pt-toast button')), 'Undo');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2', 'the count should drop at once');
+
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Buy milk', 'Water plants'], 'the ticked row should fold away and leave the list');
+});
+
+test('Undo puts the task back in its place and restores the file exactly', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(tick(1));
+  assert.equal((await page.poll(WRITES, w => w.length === 1)).length, 1, 'precondition: the tick was not saved');
+
+  await page.evaluate(click('[data-toasts] .pt-toast button'));
+  assert.deepEqual(await page.poll(STAYING, rows => rows.length === 3), ['Buy milk', 'Call mum', 'Water plants'], 'the task should be back between its neighbours');
+  assert.equal(await page.evaluate('window.__disk.inbox'), THREE, 'after Undo the file should be byte for byte what it was');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '3');
+  await new Promise(r => setTimeout(r, 1300));   // longer than the hold and the fold: the cancelled fold must not take the row away after all
+  assert.deepEqual(await page.evaluate(ROWS), ['Buy milk', 'Call mum', 'Water plants'], 'the restored row should still be there once the cancelled fold would have finished');
+  assert.equal(await page.evaluate('document.querySelectorAll("[data-list] .pt-check")[1].getAttribute("aria-checked")'), 'false');
+});
+
+test('ticking the last open task shows the empty state', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [x] Done before\n- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the task did not show');
+  await page.evaluate(tick(0));
+  assert.equal(await page.poll(TEXT('[data-list] .pt-empty strong')), 'Inbox zero');
+  assert.equal(await page.evaluate('window.__disk.inbox'), '- [x] Done before\n- [x] Buy milk\n');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '');
+});
+
+test('j, k and the arrow keys move between rows, Space ticks, and the keyboard lands on the next row', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+
+  await page.evaluate(press('j'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Buy milk', 'j with no row focused should go to the first row');
+  await page.evaluate(press('ArrowDown'));
+  await page.evaluate(press('j'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Water plants');
+  await page.evaluate(press('j'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Water plants', 'j on the last row should stay there');
+  await page.evaluate(press('k'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Call mum');
+  await page.evaluate(press('ArrowUp'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Buy milk');
+
+  await page.evaluate('document.activeElement.click()');   // what Space does on a focused button
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Call mum', 'Water plants'], 'precondition: the ticked row did not leave');
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Call mum', 'after the row folds away the keyboard should be on the row that took its place');
+
+  await page.evaluate(press('j'));
+  await page.evaluate('document.activeElement.click()');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 1), ['Call mum'], 'precondition: the second ticked row did not leave');
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Call mum', 'with no row below, the keyboard should move to the row above');
+});
+
+test('two tasks ticked one straight after the other are both saved, and a second click on a ticked row does nothing', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate('(checks => { checks[0].click(); checks[0].click(); checks[2].click(); })(document.querySelectorAll("[data-list] .pt-check"))');
+  assert.deepEqual(await page.evaluate(TOAST), ['Completed: Buy milk', 'Completed: Water plants']);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 1), ['Call mum']);
+  assert.equal(await page.evaluate('window.__disk.inbox'), THREE.replace('- [ ] Buy milk', '- [x] Buy milk').replace('- [ ] Water plants', '- [x] Water plants'));
+  assert.equal(await page.evaluate('window.__disk.writes.length'), 2, 'the second click on the first row should not save again');
+});
+
+test('ticking a task another editor has deleted says so and shows the file as it is', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate('window.__disk.inbox = "- [ ] Buy milk\\n- [ ] Something new\\n"');
+  await page.evaluate(tick(1));
+  assert.deepEqual(await page.poll(STAYING, rows => rows.includes('Something new')), ['Buy milk', 'Something new'], 'the list should be redrawn from the file');
+  assert.ok((await page.evaluate(TOAST)).includes('"Call mum" is no longer in the file.'), 'a toast should say the task is gone');
+  assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should be written');
+});
+
+test('a tick that cannot be saved says why and puts the row back unticked', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE, writeError: 'Could not save /Users/test/Tasks/Inbox.md: Permission denied' });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(tick(0));
+  assert.ok((await page.poll(TOAST, toasts => toasts.length > 1)).includes('Could not save /Users/test/Tasks/Inbox.md: Permission denied'));
+  assert.deepEqual(await page.evaluate(STAYING), ['Buy milk', 'Call mum', 'Water plants']);
+  assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-check").getAttribute("aria-checked")'), 'false');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '3');
+});
+
+// ---- renaming a task ----
+
+const RENAME = '[data-list] input.app__rename';
+const renameTo = text => `(() => { const field = document.querySelector(${js(RENAME)}); field.value = ${js(text)}; field.dispatchEvent(new Event('input', { bubbles: true })); })()`;
+const doubleClick = selector => `document.querySelector(${js(selector)}).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))`;
+const EDITING = `document.querySelector(${js(RENAME)}) !== null`;
+
+test('Return on a focused row edits its title in place, and Return again saves only the title', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(press('j'));
+  await page.evaluate(press('j'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Call mum', 'precondition: the second row does not have the keyboard');
+
+  assert.equal(await page.evaluate(press('Enter')), false, 'Return on a row should be taken by the app, so it does not press the checkbox and tick the task');
+  assert.equal(await page.poll(EDITING), true, 'Return should open a field for the title');
+  assert.deepEqual(await page.evaluate(`(f => [f.value, f.selectionStart, f.selectionEnd, document.activeElement === f, f.getAttribute('aria-label')])(document.querySelector(${js(RENAME)}))`),
+    ['Call mum', 0, 8, true, 'Rename: Call mum'], 'the field should hold the title, all selected, with the keyboard in it');
+  assert.equal(await page.evaluate('getComputedStyle(document.querySelectorAll("[data-list] .pt-task__title")[1]).display'), 'none', 'the field replaces the title while it is open');
+
+  await page.evaluate(renameTo('  Call mum about Sunday  '));
+  await page.evaluate(press('Enter'));
+  assert.deepEqual(await page.poll(ROWS, rows => rows[1] !== 'Call mum'), ['Buy milk', 'Call mum about Sunday', 'Water plants']);
+  assert.deepEqual(await page.evaluate(WRITES), [THREE.replace('- [ ] Call mum', '- [ ] Call mum about Sunday')], 'only the title should change in the file');
+  assert.equal(await page.evaluate(EDITING), false, 'the field should close');
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Call mum about Sunday', 'the keyboard should be back on the renamed row');
+  assert.equal(await page.evaluate('document.querySelectorAll("[data-list] .pt-check")[1].getAttribute("aria-label")'), 'Complete: Call mum about Sunday');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '3');
+  assert.deepEqual(await page.evaluate(TOAST), [], 'a rename leaves the task in view, so there is no toast');
+});
+
+test('a double-click on a title edits it, and Escape leaves the task as it was', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(3) .pt-task__title'));
+  assert.equal(await page.poll(EDITING), true, 'a double-click on the title should open the field');
+  assert.equal(await page.evaluate(`document.querySelector(${js(RENAME)}).value`), 'Water plants');
+
+  await page.evaluate(renameTo('Something else entirely'));
+  assert.equal(await page.evaluate(press('j')), true, 'j typed in the field is a letter, not a move to the next row');
+  await page.evaluate(press('Escape'));
+  assert.equal(await page.poll(EDITING, editing => !editing), false, 'Escape should close the field');
+  assert.deepEqual(await page.evaluate(ROWS), ['Buy milk', 'Call mum', 'Water plants']);
+  assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should be written');
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Water plants', 'the keyboard should be back on the row');
+});
+
+test('Return on an empty title keeps the field open and marks it; leaving the field empty puts the old title back', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('   '));
+  await page.evaluate(press('Enter'));
+  assert.equal(await page.evaluate(EDITING), true, 'an empty title should not be saved, and what was typed should not be thrown away');
+  assert.equal(await page.evaluate(`document.querySelector(${js(RENAME)}).getAttribute('aria-invalid')`), 'true');
+  assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-task").classList.contains("is-shaking")'), true, 'the row should shake');
+
+  await page.evaluate(renameTo('B'));
+  assert.equal(await page.evaluate(`document.querySelector(${js(RENAME)}).getAttribute('aria-invalid')`), null, 'typing should clear the mark');
+  await page.evaluate(renameTo(''));
+  await page.evaluate('document.activeElement.blur()');
+  assert.equal(await page.poll(EDITING, editing => !editing), false, 'leaving the field should close it');
+  assert.deepEqual(await page.evaluate(ROWS), ['Buy milk', 'Call mum', 'Water plants']);
+  assert.deepEqual(await page.evaluate(WRITES), []);
+});
+
+test('clicking away from the field saves a changed title, and an unchanged title writes nothing', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(press('Enter'));
+  assert.equal(await page.poll(EDITING, editing => !editing), false, 'Return on an unchanged title should close the field');
+  assert.deepEqual(await page.evaluate(WRITES), [], 'an unchanged title should not be saved');
+
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy oat milk'));
+  await page.evaluate('document.activeElement.blur()');
+  assert.deepEqual(await page.poll(ROWS, rows => rows[0] !== 'Buy milk'), ['Buy oat milk', 'Call mum', 'Water plants']);
+  assert.deepEqual(await page.evaluate(WRITES), [THREE.replace('- [ ] Buy milk', '- [ ] Buy oat milk')]);
+});
+
+test('renaming keeps what another editor wrote, and a task deleted elsewhere says so', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n- [ ] Call mum\n' });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 2)).length, 2, 'precondition: the two tasks did not show');
+  await page.evaluate('window.__disk.inbox = "# Shopping\\n- [ ] Buy milk\\n- [ ] Typed in Vim\\n"');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy oat milk'));
+  await page.evaluate(press('Enter'));
+  assert.deepEqual(await page.poll(ROWS, rows => rows.includes('Typed in Vim')), ['Buy oat milk', 'Typed in Vim'], 'the list should show the file as it now is');
+  assert.deepEqual(await page.evaluate(WRITES), ['# Shopping\n- [ ] Buy oat milk\n- [ ] Typed in Vim\n']);
+
+  await page.evaluate('window.__disk.inbox = "- [ ] Typed in Vim\\n"');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy soya milk'));
+  await page.evaluate(press('Enter'));
+  assert.ok((await page.poll(TOAST, toasts => toasts.length > 0)).includes('"Buy oat milk" is no longer in the file.'));
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 1), ['Typed in Vim']);
+  assert.equal((await page.evaluate(WRITES)).length, 1, 'the failed rename should write nothing');
+});
+
+test('a row whose title is being edited cannot be ticked by a click on its checkbox', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy oat milk'));
+  await page.evaluate('document.querySelector("[data-list] .pt-check").click()');
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(await page.evaluate('window.__disk.inbox.includes("[x]")'), false, 'the click should not tick the task while its title is open');
+  assert.deepEqual(await page.evaluate(TOAST), []);
+});
+
+// ---- desktop manners ----
+
+test('a right-click shows no web page menu on the window, and the usual menu in the task field', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the task did not show');
+  const rightClick = selector => `document.querySelector(${js(selector)}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`;
+  assert.equal(await page.evaluate(rightClick('[data-list] .pt-task')), false, 'a right-click on a row should be cancelled');
+  await page.evaluate(press('n'));
+  assert.equal(await page.evaluate(rightClick('[data-composer] input')), true, 'a right-click in the task field should be left alone');
+});
+
+// ---- speed ----
+
+test('in a 10,000-task Inbox, adding a task and ticking one each take under 16 ms from the key press to the list changing', { timeout: 120000, skip: !process.env.PLAINTASK_PERF && 'set PLAINTASK_PERF=1 to run the speed budget' }, async t => {
+  const inbox = Array.from({ length: 10000 }, (_, i) => '- [ ] Task number ' + i).join('\n') + '\n';
+  const page = await openApp(t, { inbox });
+  assert.equal(await page.poll('document.querySelectorAll("[data-list] li").length', n => n === 10000), 10000, 'precondition: the 10,000 rows did not show');
+  const median = async name => { const d = await page.evaluate(`performance.getEntriesByName(${js(name)}).map(e => e.duration).sort((a, b) => a - b)`); return d[Math.floor(d.length / 2)]; };
+
+  for (let i = 0; i < 7; i++) {
+    await page.evaluate(press('n'));
+    await page.evaluate(type('Speed test ' + i));
+    await page.evaluate(RETURN);
+    assert.equal(await page.poll('performance.getEntriesByName("plaintask:add").length', n => n > i), i + 1, 'precondition: add number ' + i + ' did not finish');
+  }
+  for (let i = 0; i < 7; i++) await page.evaluate(tick(5000));
+  const add = await median('plaintask:add'), ticked = await median('plaintask:tick');
+  console.log('10,000 tasks: add median ' + add.toFixed(1) + ' ms, tick median ' + ticked.toFixed(1) + ' ms');
+  assert.ok(add <= 16, 'adding took a median of ' + add.toFixed(1) + ' ms; the budget is 16 ms');
+  assert.ok(ticked <= 16, 'ticking took a median of ' + ticked.toFixed(1) + ' ms; the budget is 16 ms');
+});

@@ -1,0 +1,19 @@
+{
+  "name": "@plaintask/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Plaintask desktop app (Tauri 2). macOS first.",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "app": "tauri build",
+    "measure": "node scripts/measure-launch.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/cli": "^2.12.6",
+    "typescript": "^7.0.2"
+  }
+}

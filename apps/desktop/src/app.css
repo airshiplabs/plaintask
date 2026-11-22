@@ -1,0 +1,29 @@
+/* The app shell: only the layout bundle.css leaves to the app, and desktop-app manners.
+   Every color, size and motion value comes from tokens.css and bundle.css. */
+html, body { height: 100%; margin: 0; }
+body { background: var(--surface); overflow: hidden; cursor: default; user-select: none; -webkit-user-select: none; }
+body input { user-select: text; -webkit-user-select: text; cursor: text; }
+
+.app { display: grid; grid-template-columns: var(--size-sidebar) 1fr; height: 100vh; }
+
+/* The window has no title bar: its top strip drags the window, and the traffic lights sit over the sidebar. */
+.app__drag { position: fixed; inset: 0 0 auto 0; height: var(--space-5); z-index: 5; }
+.app__side { display: grid; min-height: 0; }
+.app__side .pt-sidebar { padding-top: 44px; overflow: auto; }
+
+.app__main { display: grid; grid-template-rows: auto auto 1fr; min-width: 0; min-height: 0; background: var(--surface); }
+.app__composer { margin: 0 var(--space-4); }
+.app__composer .pt-composer { margin: var(--space-2) 0 var(--space-3); }
+.app__scroll { overflow: auto; min-height: 0; }
+.app__list { padding: 0 var(--space-4) var(--space-6); }
+
+.app__toasts { position: fixed; inset: auto 0 20px 0; z-index: 10; pointer-events: none; }
+.app__toasts .pt-toast { pointer-events: auto; }
+
+/* The button under a message that stands in for the list (no folder chosen, a file that cannot be read). */
+.app__choose { margin-top: var(--space-2); }
+
+/* A task's title while it is being renamed: a field in the title's own type and place, so the row does not move.
+   The design system's focus ring marks it; an empty title turns the ring to the error color. */
+.app__rename { font: inherit; color: var(--ink); background: transparent; border: 0; padding: 0; margin: 0; width: 100%; min-width: 0; }
+.app__rename[aria-invalid="true"] { outline-color: var(--danger); }

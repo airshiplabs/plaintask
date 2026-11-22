@@ -8,8 +8,9 @@
 .pt-root { font-family: var(--font-sans); font-size: 14px; line-height: 1.4; color: var(--ink); -webkit-font-smoothing: antialiased; }
 .pt-root *, .pt-root *::before, .pt-root *::after { box-sizing: border-box; }
 .pt-root ul { list-style: none; margin: 0; padding: 0; }
-.pt-root button, .pt-root input, .pt-root select { font: inherit; color: inherit; }
-.pt-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+/* :where() keeps these two resets weaker than any component rule, so a button's own color and a checkbox's own radius win. */
+:where(.pt-root) button, :where(.pt-root) input, :where(.pt-root) select { font: inherit; color: inherit; }
+:where(.pt-root) :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 .pt-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .pt-kbd { font: 500 11px var(--font-mono); padding: 1px 5px; border-radius: 4px; background: var(--surface-2); color: var(--muted); }
 

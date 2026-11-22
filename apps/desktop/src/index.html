@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plaintask</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="bundle.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="pt-root" data-platform="macos">
+<div class="app">
+  <div class="app__drag" data-tauri-drag-region></div>
+  <div class="app__side" data-side></div>
+  <main class="app__main">
+    <div data-head></div>
+    <div class="pt-collapse app__composer is-leaving" data-composer inert><div></div></div>
+    <div class="app__scroll" data-scroll><div class="app__list" data-list></div></div>
+  </main>
+  <div class="pt-toasts app__toasts" aria-live="polite" data-toasts></div>
+</div>
+<script src="bundle.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
