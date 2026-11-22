@@ -17,7 +17,8 @@
 | SHA-256 | `{{sha256}}` |
 | Signed by | {{identity}} |
 | Team | {{teamId}} |
-| Notarization | {{notaryId}}: {{notaryStatus}} |
+| App notarization | {{appNotaryId}}: {{appNotaryStatus}} |
+| DMG notarization | {{notaryId}}: {{notaryStatus}} |
 
 The asset downloaded from the published release has the SHA-256 above and a valid stapled ticket.
 

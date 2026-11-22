@@ -29,10 +29,10 @@
 | `build` or `verify` | A codesign, `spctl` or `syspolicy_check` error with no row here | Inspect read-only: `codesign -dvvv` and `codesign --verify --strict --deep -vvv` on the app, `spctl -a -vvv -t exec`, and the command's own full output. An unnotarized Developer ID app is rejected by `spctl` before notarization; that alone is not a fault. Submitting the app to `notarytool` by hand uploads it to Apple: ask the person first. Apple's notary log is the authority when a local check disagrees with it. |
 | `build` | Exit 3, notarization in progress | Run the same `build` command. It resumes at the wait and does not rebuild. A team's first submission can take hours. |
 | `build` | `notarization ... ended as Invalid` | `dist/release/<V>/notary-log.json` lists each file and message. Fix forward as for a build failure. Remove `dist/release/<V>/` before building the same commit again. |
-| `build` | Exit 3, `app notarization ... is still in progress` | The `.app` is notarized before the DMG is made, with a 60-minute wait. Run the same `build` command: it builds and submits the app again. |
+| `build` | Exit 3, `app notarization ... is still in progress` | The `.app` is notarized before the DMG is made, with a 60-minute wait. Run the same `build` command. It resumes at the wait with the submission id in `build.json` (`appNotary.id`) and does not rebuild or submit again. It builds and submits again only when the app in `apps/desktop/src-tauri/target/` is no longer the one submitted. |
 | `build` | `app notarization ... ended as Invalid` | `dist/release/<V>/app-notary-log.json` lists each file and message. Fix forward as for a build failure. |
 | `build` | `a GitHub release for desktop-v<V> exists` | A rebuild makes a different DMG than the one staged. To rebuild, undo the stage first (below). |
-| `verify` | Any check fails | Do not stage. The failed check ids are in `verify.json`. Fix the cause and build again. |
+| `verify` | Any check fails | Do not stage. The failed check ids are in `verify.json`. Fix the cause and build again. Until then `status` lists the failed verify under `problems` and names `build-artifact` as `next`. |
 | `verify` | Exit 1, yet every check in its JSON is `ok` and `status` reports `verified` | The script failed after the checks ran; the DMG passed. Do not rebuild. Fix the script forward (see "Fix forward"), and stage only with the person's approval. |
 | `stage` | Exit 3, `test` check not finished on the release commit | Run `stage` again when the check on `main` finishes. |
 | `stage` | `no passing verify.json`, or the DMG `changed after it was built and verified` | Run `verify` again. If the DMG changed, remove `dist/release/<V>/` and build again. |
@@ -48,7 +48,7 @@ A fault in the app or in this skill's tooling after the release pull request mer
 2. Ask the person once whether to open the fix pull request and merge it when its checks pass.
 3. Branch from `origin/main` with the `branch-naming` skill, commit signed with a Conventional Commits message, and end the body with the `pr-session-footer` skill. A change to release tooling alone needs no changelog entry; a change to the shipped app gets one under `[Unreleased]` (see "A change lands after the release pull request").
 4. Merge with a squash once every check on the pull request has finished and passed. GitHub refuses auto-merge while any check, required or not, is still running.
-5. Build with `--sha <new origin/main commit>`, whatever `status` names as `next`: `status` still points at the old build.
+5. Run `status`. Until a tag exists, it lists the commit on `main` after the build under `problems`, and names `build-artifact` as `next` and the new `origin/main` commit as `releaseSha`. Build with that `--sha`.
 
 ## Undo a stage
 

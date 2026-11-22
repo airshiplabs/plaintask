@@ -109,6 +109,7 @@ export function entitlementProblems(expected, actual) {
  *   appNotarized: boolean, appDistribution: boolean,
  *   entitlements: Record<string, unknown>, bundleVersion: string | null, bundleBuild: string | null, archs: string | null,
  *   launch: { ready: boolean, detail: string },
+ *   appNotaryLog: { status: string, issues: { severity: string, message: string }[] | null } | null,
  *   notaryLog: { status: string, issues: { severity: string, message: string }[] | null } | null,
  * }} facts
  * @param {{ sha256: string, version: string, buildNumber: string, teamId: string | null, entitlements: Record<string, unknown>, adhoc: boolean }} expected
@@ -119,6 +120,8 @@ export function assessArtifact(facts, expected) {
   const dmg = facts.dmgSignature;
   const app = facts.appSignature;
   const entitlements = entitlementProblems(expected.entitlements, facts.entitlements);
+  const appLogErrors = (facts.appNotaryLog?.issues ?? []).filter((issue) => issue.severity === NOTARY_ERROR);
+  const appLogWarnings = (facts.appNotaryLog?.issues ?? []).length - appLogErrors.length;
   const logErrors = (facts.notaryLog?.issues ?? []).filter((issue) => issue.severity === NOTARY_ERROR);
   const logWarnings = (facts.notaryLog?.issues ?? []).length - logErrors.length;
 
@@ -146,6 +149,8 @@ export function assessArtifact(facts, expected) {
       detail: `CFBundleShortVersionString ${facts.bundleVersion}, CFBundleVersion ${facts.bundleBuild} (built from ${expected.buildNumber})` },
     { id: 'app-arch', ok: facts.archs === MACHO_ARCH, detail: `lipo -archs ${facts.archs}` },
     { id: 'app-launch', ok: facts.launch.ready, detail: facts.launch.detail },
+    developerIdOnly('app-notary-log', facts.appNotaryLog?.status === 'Accepted' && appLogErrors.length === 0,
+      facts.appNotaryLog ? `status ${facts.appNotaryLog.status}; ${appLogErrors.length} error(s), ${appLogWarnings} warning(s)` : 'app-notary-log.json is missing'),
     developerIdOnly('notary-log', facts.notaryLog?.status === 'Accepted' && logErrors.length === 0,
       facts.notaryLog ? `status ${facts.notaryLog.status}; ${logErrors.length} error(s), ${logWarnings} warning(s)` : 'notary-log.json is missing'),
   ];
@@ -172,4 +177,39 @@ export function developerIdProblems(display, teamId) {
     display.timestamp === null && 'no secure timestamp',
     display.teamId !== teamId && `team is ${display.teamId}, expected ${teamId}`,
   ].filter(Boolean);
+}
+
+/** Where a notary submission stands. */
+export const NOTARY_STATE = Object.freeze({ accepted: 'accepted', rejected: 'rejected', pending: 'pending' });
+const NOTARY_STATUS_ACCEPTED = 'Accepted';
+const NOTARY_STATUS_IN_PROGRESS = 'In Progress';
+
+/**
+ * Where a notary submission stands, from the JSON of `notarytool info` or `notarytool submit --wait`.
+ * A wait that timed out reports no status: the submission is still in progress.
+ * @param {{ status?: string }} result
+ * @returns {{ state: 'accepted' | 'rejected' | 'pending', status: string }}
+ */
+export function notaryOutcome(result) {
+  const status = result.status ?? NOTARY_STATUS_IN_PROGRESS;
+  if (status === NOTARY_STATUS_IN_PROGRESS) return { state: NOTARY_STATE.pending, status };
+  return { state: status === NOTARY_STATUS_ACCEPTED ? NOTARY_STATE.accepted : NOTARY_STATE.rejected, status };
+}
+
+/**
+ * The launch probe's verdict on one event, or null while it must keep waiting.
+ * After the probe has `settled` every event gives null and `logs` is not read: settling deletes the log files,
+ * and `open` exits after that.
+ * @param {boolean} settled
+ * @param {{ type: 'poll', elapsedMs: number } | { type: 'exit', code: number | null, elapsedMs: number } | { type: 'timeout', limitMs: number } | { type: 'error', code: string }} event
+ * @param {{ stdout: () => string, stderr: () => string }} logs reads the app's output files
+ * @returns {{ ready: boolean, detail: string } | null}
+ */
+export function launchVerdict(settled, event, logs) {
+  if (settled) return null;
+  if (event.type === 'error') return { ready: false, detail: `open did not start: ${event.code}` };
+  if (event.type === 'timeout') return { ready: false, detail: `no "ready" within ${event.limitMs} ms; stderr: ${logs.stderr()}` };
+  if (logs.stdout().includes('ready')) return { ready: true, detail: `"ready" after ${event.elapsedMs} ms` };
+  if (event.type === 'exit') return { ready: false, detail: `the app exited (open: ${event.code}) before "ready"; stderr: ${logs.stderr()}` };
+  return null;
 }

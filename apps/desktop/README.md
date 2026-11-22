@@ -58,7 +58,7 @@ Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the bui
 
 The app runs in the macOS App Sandbox (`src-tauri/Entitlements.plist`). `com.apple.security.network.client` is there because WKWebView loads no page without it inside the sandbox, the app's own bundled page included. The app makes no network requests.
 
-Launch a Developer ID signed build through Launch Services: `open -W -n --env PLAINTASK_MEASURE_LAUNCH=1 --stdout <file> Plaintask.app`. Executing `Contents/MacOS/plaintask` directly starts the process, but the page never draws and "ready" never prints. An ad-hoc-signed build draws either way. `scripts/measure-launch.mjs` executes the binary directly, so it times launches of ad-hoc builds only.
+Launch a Developer ID signed build through Launch Services: `open -W -n --env PLAINTASK_MEASURE_LAUNCH=1 --stdout <file> Plaintask.app`. Executing `Contents/MacOS/plaintask` directly starts the process, but the page never draws and "ready" never prints. An ad-hoc-signed build draws either way. `scripts/measure-launch.mjs` launches through `open`, so it times either build.
 
 ## Speed budgets
 
@@ -82,7 +82,7 @@ Where the launch time goes, same machine and minute:
 
 About 285 ms of the launch is the web view starting, which this stack cannot avoid. Resolving the security-scoped bookmark costs about 50 ms; it runs after the page loads and could run beside it.
 
-`measure` reports two milestones per launch, in ms from process start: `ready` (the page has drawn itself and asked for its window) and `first-frame` (that page's first frame is painted). macOS paints no new window while the screen is locked, so only `ready` is reported then.
+`measure` reports two milestones per launch, in ms from the start of `open`: `ready` (the page has drawn itself and asked for its window) and `first-frame` (that page's first frame is painted). macOS paints no new window while the screen is locked, so only `ready` is reported then.
 
 ## Checked in the built app's window
 

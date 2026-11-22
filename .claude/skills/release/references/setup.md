@@ -76,6 +76,17 @@ Check:
 xcrun notarytool history --keychain-profile "plaintask-notary"
 ```
 
+### One-time test submission
+
+Preflight passes the `notary-profile` check with `warn: true` when that history is empty. A team's first submission can take hours, far longer than the wait `build` gives the notary service, so make it now and not during a release. Sign the probe from `signing-probe` above, then submit it:
+
+```sh
+ditto -c -k /tmp/probe /tmp/probe.zip
+xcrun notarytool submit /tmp/probe.zip --keychain-profile "plaintask-notary" --wait
+```
+
+This uploads the probe, a signed copy of `/usr/bin/true`, to Apple. When `--wait` is interrupted or times out, the submission goes on: `xcrun notarytool history --keychain-profile "plaintask-notary"` shows its status. Start the release once the status is no longer `In Progress`; the warning stops as soon as the history lists the submission.
+
 ## `git-signing`: signed commits and tags
 
 The release commit and the release tag must carry a valid signature. `git config --get commit.gpgsign` must print `true`, and `user.signingkey` must be set. With `gpg.format = ssh`, `gpg.ssh.allowedSignersFile` must name a file that lists the signing key: `git tag -v` cannot verify a tag without it.

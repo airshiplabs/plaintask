@@ -39,7 +39,7 @@ Pass `--version` only when the person named one. Stdout:
 | `version` | The release in flight, or the one the `[Unreleased]` entries call for. `null` with `next: draft-changelog`: no version is known until the entries are drafted. `null` with `next: none`: there is nothing to release; say so and stop. |
 | `phase` | One of `plan`, `pr-open`, `pr-merged`, `built`, `verified`, `staged`, `published`. |
 | `next` | The task that moves the release forward. Go to its row in section 3. |
-| `releaseSha` | The commit to build, once the release pull request is merged. |
+| `releaseSha` | The commit to build, once the release pull request is merged. Before a tag exists, a commit on `main` after the build makes this the new `origin/main` commit, with `next: build-artifact`. |
 | `problems` | Each one needs an answer before you go on. `references/recovery.md` has the fix. |
 
 A phase other than `plan` means an earlier run stopped partway. Tell the person "resuming <version> at <phase>" and continue from `next`. Do not start over.
@@ -52,7 +52,7 @@ node .claude/skills/release/scripts/release.mjs preflight
 
 | Exit | Do |
 | --- | --- |
-| 0 | Go on. |
+| 0 | Go on. A check with `warn: true` passed; show the person its `id`, `detail`, and `fix` first. `notary-profile` warns when the team has no notary submission yet: point them to "One-time test submission" in `references/setup.md`. |
 | 2 | A setup or checkout check failed, and no quality gate ran. Show each failing check's `id`, `detail`, and `fix`. Fix what is yours to fix: `head-at-main` (`git switch --detach origin/main`) and `git-hooks` (`pnpm run prepare`). `signing-identity`, `signing-probe`, and `notary-profile` are the person's: point them to `references/setup.md` and stop. |
 | 1 | A quality gate failed on `origin/main`: the changelog format check, `pnpm test`, the desktop `typecheck`, or `check:rust`. Report it and stop. A release does not start from failing code. |
 

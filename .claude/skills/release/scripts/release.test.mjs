@@ -279,6 +279,58 @@ test('status reports each phase from the facts it finds', (t) => {
   assert.match(repo.cli(['status', '--version', VERSION]).json.problems.join('\n'), /tag desktop-v0\.1\.0 is on origin and no GitHub release exists/);
 });
 
+test('status names build-artifact and a problem when verify.json records a failed check', (t) => {
+  const repo = makeRepo(t);
+  const sha = landRelease(repo);
+  const { sha256 } = fakeBuild(repo, sha, { verified: false });
+  repo.write(`dist/release/${VERSION}/verify.json`, JSON.stringify({
+    version: VERSION, ok: false, sha256, checks: [{ id: 'dmg-sha256', ok: true, detail: sha256 }, { id: 'launch', ok: false, detail: 'no "ready" within 15000 ms' }],
+  }));
+  const failed = repo.cli(['status']);
+  assert.equal(failed.status, 0, failed.stderr);
+  assert.deepEqual([failed.json.phase, failed.json.next, failed.json.releaseSha], ['built', 'build-artifact', sha]);
+  assert.equal(failed.json.problems.length, 1);
+  assert.match(failed.json.problems[0], /verify\.json records a failed verify \(launch\): fix the cause and build again/);
+
+  fakeBuild(repo, sha);
+  const passed = repo.cli(['status']);
+  assert.deepEqual([passed.json.next, passed.json.problems], ['stage-release', []], 'a passing verify.json raises nothing');
+});
+
+test('status names build-artifact and the new commit when main is ahead of the build and no tag exists', (t) => {
+  const repo = makeRepo(t);
+  const sha = landRelease(repo);
+  const { bytes } = fakeBuild(repo, sha);
+  const main = repo.commit({ 'apps/desktop/src/app.ts': 'x' }, 'fix(desktop): keep the folder (#4)');
+
+  const ahead = repo.cli(['status']);
+  assert.equal(ahead.status, 0, ahead.stderr);
+  assert.deepEqual([ahead.json.phase, ahead.json.next, ahead.json.releaseSha], ['verified', 'build-artifact', main]);
+  assert.equal(ahead.json.problems.length, 1);
+  assert.match(ahead.json.problems[0], new RegExp(`origin/main is at ${main}, ahead of the build of ${sha}: build again with --sha ${main}`));
+
+  repo.git('tag', TAG, sha);
+  repo.git('push', '--quiet', 'origin', TAG);
+  const staged = repo.cli(['status', '--version', VERSION], { 'gh release view': release(true, bytes) });
+  assert.deepEqual([staged.json.next, staged.json.releaseSha, staged.json.problems], ['publish-release', sha, []], 'a tagged release is not rebuilt for a later commit');
+});
+
+test('preflight warns, and does not fail the check, when the notary history is empty', (t) => {
+  const repo = makeRepo(t);
+  const notary = (reply) => repo.cli(['preflight'], { 'xcrun notarytool history': reply }).json.checks.find((item) => item.id === 'notary-profile');
+
+  const empty = notary({ stdout: { history: [], message: 'No submission history.' } });
+  assert.deepEqual([empty.ok, empty.warn], [true, true]);
+  assert.match(empty.detail, /keychain profile "plaintask-notary" has no notary submission/);
+  assert.match(empty.fix, /one-time test submission.*references\/setup\.md/);
+
+  assert.deepEqual(notary({ stdout: { history: [{ id: 'n-1', status: 'Accepted' }] } }), { id: 'notary-profile', ok: true, detail: 'ok' });
+
+  const unreachable = notary({ status: 1, stderr: 'Error: No Keychain password item found for profile: plaintask-notary\n' });
+  assert.equal(unreachable.ok, false);
+  assert.match(unreachable.fix, /store the notary credentials/);
+});
+
 test('preflight exits 2 and runs no quality gate when the signing identity is missing', (t) => {
   const repo = makeRepo(t);
   const result = repo.cli(['preflight'], {

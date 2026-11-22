@@ -2,7 +2,10 @@
 //   node --test artifact.test.mjs     (run from this directory)
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assessArtifact, checksumLine, dmgName, entitlementProblems, notarizationProblems, parseCodesignDisplay, pickIdentity, tauriEnv } from './artifact.mjs';
+import {
+  assessArtifact, checksumLine, dmgName, entitlementProblems, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome, parseCodesignDisplay,
+  pickIdentity, tauriEnv,
+} from './artifact.mjs';
 
 const HASH_A = 'A'.repeat(40);
 const HASH_B = 'B'.repeat(40);
@@ -90,6 +93,7 @@ const goodFacts = {
   volume: { hasApp: true, applicationsLink: '/Applications' },
   appSignature: { verified: true, display: parseCodesignDisplay(DEVELOPER_ID_DISPLAY) }, appNotarized: true, appDistribution: true,
   entitlements: ENTITLEMENTS, bundleVersion: '0.1.0', bundleBuild: '4212807', archs: 'arm64', launch: { ready: true, detail: 'ready in 400 ms' },
+  appNotaryLog: { status: 'Accepted', issues: null },
   notaryLog: { status: 'Accepted', issues: null },
 };
 const failed = (facts, want = expected) => assessArtifact(facts, want).checks.filter((check) => !check.ok).map((check) => check.id);
@@ -99,7 +103,7 @@ test('assessArtifact passes a notarized Developer ID artifact and lists checks i
   assert.equal(verdict.ok, true);
   assert.deepEqual(verdict.checks.map((check) => check.id), [
     'dmg-sha256', 'dmg-image', 'dmg-signature', 'dmg-stapled', 'dmg-gatekeeper', 'volume-layout', 'app-signature',
-    'app-notarized', 'app-distribution', 'app-entitlements', 'app-version', 'app-arch', 'app-launch', 'notary-log',
+    'app-notarized', 'app-distribution', 'app-entitlements', 'app-version', 'app-arch', 'app-launch', 'app-notary-log', 'notary-log',
   ]);
   assert.ok(verdict.checks.every((check) => !check.skipped && check.detail.length > 0));
 });
@@ -125,21 +129,81 @@ test('assessArtifact fails the one check each bad fact breaks', () => {
     [{ bundleBuild: '4212807-dirty' }, ['app-version']],
     [{ archs: 'x86_64 arm64' }, ['app-arch']],
     [{ launch: { ready: false, detail: 'no "ready" within 15000 ms' } }, ['app-launch']],
+    [{ appNotaryLog: null }, ['app-notary-log']],
+    [{ appNotaryLog: undefined }, ['app-notary-log']],
+    [{ appNotaryLog: { status: 'Invalid', issues: [] } }, ['app-notary-log']],
+    [{ appNotaryLog: { status: 'Accepted', issues: [{ severity: 'error', message: 'not signed' }] } }, ['app-notary-log']],
     [{ notaryLog: null }, ['notary-log']],
     [{ notaryLog: { status: 'Invalid', issues: [] } }, ['notary-log']],
     [{ notaryLog: { status: 'Accepted', issues: [{ severity: 'error', message: 'not signed' }] } }, ['notary-log']],
   ];
   for (const [change, ids] of rows) assert.deepEqual(failed({ ...goodFacts, ...change }), ids, JSON.stringify(change));
   assert.deepEqual(failed({ ...goodFacts, notaryLog: { status: 'Accepted', issues: [{ severity: 'warning', message: 'x' }] } }), []);
+  assert.deepEqual(failed({ ...goodFacts, appNotaryLog: { status: 'Accepted', issues: [{ severity: 'warning', message: 'x' }] } }), []);
+});
+
+test('assessArtifact reports each notary log in its own check detail', () => {
+  const detailOf = (facts, id) => assessArtifact(facts, expected).checks.find((check) => check.id === id).detail;
+  const appLog = { status: 'Invalid', issues: [{ severity: 'error', message: 'not signed' }, { severity: 'warning', message: 'x' }] };
+  assert.equal(detailOf({ ...goodFacts, appNotaryLog: appLog }, 'app-notary-log'), 'status Invalid; 1 error(s), 1 warning(s)');
+  assert.equal(detailOf({ ...goodFacts, appNotaryLog: appLog }, 'notary-log'), 'status Accepted; 0 error(s), 0 warning(s)');
+  assert.equal(detailOf({ ...goodFacts, appNotaryLog: null }, 'app-notary-log'), 'app-notary-log.json is missing');
 });
 
 test('assessArtifact with adhoc skips the Developer ID checks and still judges the rest', () => {
   const adhocFacts = {
     ...goodFacts, dmgSignature: { verified: false, display: parseCodesignDisplay('') }, dmgStapled: false, dmgGatekeeper: false,
-    appSignature: { verified: true, display: parseCodesignDisplay(ADHOC_DISPLAY) }, appNotarized: false, appDistribution: false, notaryLog: null,
+    appSignature: { verified: true, display: parseCodesignDisplay(ADHOC_DISPLAY) }, appNotarized: false, appDistribution: false, appNotaryLog: null, notaryLog: null,
   };
   const verdict = assessArtifact(adhocFacts, { ...expected, teamId: null, adhoc: true });
   assert.equal(verdict.ok, true);
-  assert.deepEqual(verdict.checks.filter((check) => check.skipped).map((check) => check.id), ['dmg-signature', 'dmg-stapled', 'dmg-gatekeeper', 'app-notarized', 'app-distribution', 'notary-log']);
+  assert.deepEqual(verdict.checks.filter((check) => check.skipped).map((check) => check.id), ['dmg-signature', 'dmg-stapled', 'dmg-gatekeeper', 'app-notarized', 'app-distribution', 'app-notary-log', 'notary-log']);
   assert.deepEqual(failed({ ...adhocFacts, bundleVersion: '9.9.9' }, { ...expected, teamId: null, adhoc: true }), ['app-version']);
+});
+
+// The launch probe deletes its log files when it settles. A read after that is the ENOENT crash of #55.
+const deletedLogs = { stdout: () => { throw new Error('ENOENT: stdout.txt'); }, stderr: () => { throw new Error('ENOENT: stderr.txt'); } };
+const logs = (stdout, stderr = '') => ({ stdout: () => stdout, stderr: () => stderr });
+
+test('launchVerdict: ready, then the exit of open is ignored without reading the deleted logs', () => {
+  assert.equal(launchVerdict(false, { type: 'poll', elapsedMs: 50 }, logs('')), null);
+  assert.deepEqual(launchVerdict(false, { type: 'poll', elapsedMs: 100 }, logs('ready')), { ready: true, detail: '"ready" after 100 ms' });
+  assert.equal(launchVerdict(true, { type: 'exit', code: 0, elapsedMs: 120 }, deletedLogs), null);
+  assert.equal(launchVerdict(true, { type: 'poll', elapsedMs: 150 }, deletedLogs), null);
+});
+
+test('launchVerdict: an exit before "ready" fails with the exit code and stderr', () => {
+  assert.equal(launchVerdict(false, { type: 'poll', elapsedMs: 50 }, logs('')), null);
+  assert.deepEqual(launchVerdict(false, { type: 'exit', code: 1, elapsedMs: 80 }, logs('', 'boom')),
+    { ready: false, detail: 'the app exited (open: 1) before "ready"; stderr: boom' });
+  assert.equal(launchVerdict(true, { type: 'timeout', limitMs: 15000 }, deletedLogs), null);
+});
+
+test('launchVerdict: an exit that follows "ready" between two polls passes', () => {
+  assert.deepEqual(launchVerdict(false, { type: 'exit', code: 0, elapsedMs: 80 }, logs('ready')), { ready: true, detail: '"ready" after 80 ms' });
+});
+
+test('launchVerdict: a timeout fails with stderr, and the exit after it is ignored', () => {
+  assert.equal(launchVerdict(false, { type: 'poll', elapsedMs: 14950 }, logs('')), null);
+  assert.deepEqual(launchVerdict(false, { type: 'timeout', limitMs: 15000 }, logs('', 'locked')), { ready: false, detail: 'no "ready" within 15000 ms; stderr: locked' });
+  assert.equal(launchVerdict(true, { type: 'exit', code: null, elapsedMs: 15010 }, deletedLogs), null);
+});
+
+test('launchVerdict: open that cannot start fails without reading the logs', () => {
+  assert.deepEqual(launchVerdict(false, { type: 'error', code: 'ENOENT' }, deletedLogs), { ready: false, detail: 'open did not start: ENOENT' });
+  assert.equal(launchVerdict(true, { type: 'error', code: 'ENOENT' }, deletedLogs), null);
+});
+
+test('notaryOutcome: Accepted is accepted', () => {
+  assert.deepEqual(notaryOutcome({ id: 'abc', status: 'Accepted' }), { state: NOTARY_STATE.accepted, status: 'Accepted' });
+});
+
+test('notaryOutcome: Invalid and Rejected are rejected, with the status Apple gave', () => {
+  assert.deepEqual(notaryOutcome({ id: 'abc', status: 'Invalid' }), { state: NOTARY_STATE.rejected, status: 'Invalid' });
+  assert.deepEqual(notaryOutcome({ id: 'abc', status: 'Rejected' }), { state: NOTARY_STATE.rejected, status: 'Rejected' });
+});
+
+test('notaryOutcome: a timeout with no status, and In Progress, are pending', () => {
+  assert.deepEqual(notaryOutcome({ id: 'abc', message: 'Timed out waiting for processing' }), { state: NOTARY_STATE.pending, status: 'In Progress' });
+  assert.deepEqual(notaryOutcome({ id: 'abc', status: 'In Progress' }), { state: NOTARY_STATE.pending, status: 'In Progress' });
 });

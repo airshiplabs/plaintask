@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // release.mjs - every deterministic step of a Plaintask macOS release. Run from anywhere inside the repo.
 //   node release.mjs status    [--version V]                     where a release stands; read-only
-//   node release.mjs preflight                                   one-time setup and repo checks, then the quality gates
+//   node release.mjs preflight                                   one-time setup and repo checks, then the quality gates; a check with "warn" passes
 //   node release.mjs plan      [--version V] [--entries FILE]    commits and changelog entries since the last release tag, and the next version
 //   node release.mjs cut       --version V --entries FILE [--date YYYY-MM-DD] [--dry-run]
 //                                                                adds the entries, cuts apps/desktop/CHANGELOG.md, writes the four version manifests
@@ -17,7 +17,7 @@
 // Output: one JSON object on stdout, or nothing. Diagnostics and the output of wrapped tools go to stderr.
 // --dry-run prints "would run: <command>" for each command that changes something, and runs the read-only ones.
 // The changelog format, its scripts, and the desktop-v<V> tag name belong to .claude/skills/keep-a-changelog/.
-// Files: dist/release/entries.json holds the changelog entries a release adds. dist/release/<V>/ holds the DMG, SHA256SUMS.txt, build.json, verify.json, notary-log.json,
+// Files: dist/release/entries.json holds the changelog entries a release adds. dist/release/<V>/ holds the DMG, SHA256SUMS.txt, build.json, verify.json, app-notary-log.json, notary-log.json,
 // release-notes.md and release-report.md. An --adhoc rehearsal uses dist/release/<V>-adhoc/ and can never be staged.
 // Exit 0: done. Exit 1: a check failed; do not go on. Exit 2: usage error or a missing prerequisite.
 // Exit 3: outside work (CI, notarization) is still running; run the same command again.
@@ -27,8 +27,8 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-  assessArtifact, CHECKSUMS_NAME, checksumLine, DMG_IDENTIFIER, dmgName, notarizationProblems, parseCodesignDisplay,
-  pickIdentity, PRODUCT_NAME, SIGNATURE, tauriEnv,
+  assessArtifact, CHECKSUMS_NAME, checksumLine, DMG_IDENTIFIER, dmgName, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome,
+  parseCodesignDisplay, pickIdentity, PRODUCT_NAME, SIGNATURE, tauriEnv,
 } from './artifact.mjs';
 import { appendFooter, sessionFooter } from '../../pr-session-footer/session-footer.mjs';
 import { componentFor, validate as validateChangelog } from '../../keep-a-changelog/changelog.mjs';
@@ -376,16 +376,23 @@ function status({ version: explicit }) {
   const phase = derivePhase({ release, build, verify, mainHasRelease: mainProblems.length === 0, pr });
 
   const problems = [];
-  if (build && !build.sha256) problems.push(`notarization ${build.notary?.id} was submitted and has not finished: run build again with --sha ${build.sha}`);
+  if (build && !build.sha256) problems.push(`notarization ${build.notary?.id ?? build.appNotary?.id} was submitted and has not finished: run build again with --sha ${build.sha}`);
   if (tagSha && build?.sha && tagSha !== build.sha) problems.push(`tag ${tag} on origin points at ${tagSha}, but the build is of ${build.sha}`);
   if (tagSha && !release) problems.push(`tag ${tag} is on origin and no GitHub release exists: run stage again`);
   if (existsSync(join(outDir(version, true), 'build.json'))) problems.push(`an --adhoc rehearsal build is in dist/release/${version}-adhoc; it is not part of this release`);
+  // Until a tag exists the build can be replaced: a failed verify, or a commit on main after the built one, needs a new build.
+  const replaceable = !tagSha && !release;
+  const verifyFailed = replaceable && verify !== null && !verify.ok;
+  const mainAhead = replaceable && Boolean(build?.sha) && build.sha !== main && run('git', ['merge-base', '--is-ancestor', build.sha, BASE]).status === 0;
+  if (verifyFailed) problems.push(`verify.json records a failed verify (${(verify.checks ?? []).filter((item) => !item.ok).map((item) => item.id).join(', ')}): fix the cause and build again`);
+  if (mainAhead) problems.push(`${BASE} is at ${main}, ahead of the build of ${build.sha}: build again with --sha ${main}`);
+  const rebuild = verifyFailed || mainAhead;
 
   print({
     version,
     phase,
-    next: NEXT_TASK[phase],
-    releaseSha: build?.sha ?? (mainProblems.length === 0 ? main : null),
+    next: rebuild ? NEXT_TASK['pr-merged'] : NEXT_TASK[phase],
+    releaseSha: (mainAhead ? null : build?.sha) ?? (mainProblems.length === 0 ? main : null),
     facts: {
       main,
       lastVersion: lastReleaseVersion(),
@@ -443,7 +450,10 @@ function isExecutable(path) {
   }
 }
 
-/** The setup and repo checks, in order. Each returns null on pass or a one-line reason. */
+/** True when `notarytool history --output-format json` printed a history with no submission in it. */
+const notaryHistoryIsEmpty = (stdout) => JSON.parse(stdout).history?.length === 0;
+
+/** The setup and repo checks, in order. Each returns null on pass, a one-line reason on failure, or { warn, fix } for a pass with a warning. */
 function setupChecks() {
   const identity = findIdentity();
   const commonDir = resolve(root, git('rev-parse', '--git-common-dir'));
@@ -462,7 +472,12 @@ function setupChecks() {
     ['signing-probe', `allow codesign to use the key without a prompt: ${SEE.setup}`, () => (identity.ok ? signingProbe(identity.identity) : 'not run: no signing identity')],
     ['notary-profile', `store the notary credentials as keychain profile "${NOTARY_PROFILE}": ${SEE.setup}`, () => {
       const history = run('xcrun', ['notarytool', 'history', '--keychain-profile', NOTARY_PROFILE, '--output-format', 'json']);
-      return history.status === 0 ? null : `notarytool cannot use keychain profile "${NOTARY_PROFILE}"`;
+      if (history.status !== 0) return `notarytool cannot use keychain profile "${NOTARY_PROFILE}"`;
+      if (!notaryHistoryIsEmpty(history.stdout)) return null;
+      return {
+        warn: `keychain profile "${NOTARY_PROFILE}" has no notary submission; a team's first submission can take hours and outrun the build's wait`,
+        fix: `make the one-time test submission before the release: ${SEE.setup}`,
+      };
     }],
     ['git-signing', 'set commit.gpgsign=true, user.signingkey, and for ssh signing gpg.ssh.allowedSignersFile', () => {
       if (gitConfig('commit.gpgsign') !== 'true') return 'commit.gpgsign is not true';
@@ -506,7 +521,9 @@ function preflight() {
   fetchMain();
   const checks = setupChecks().map(([id, fix, probe]) => {
     const reason = probe();
-    return reason === null ? { id, ok: true, detail: 'ok' } : { id, ok: false, detail: reason, fix };
+    if (reason === null) return { id, ok: true, detail: 'ok' };
+    if (reason.warn) return { id, ok: true, warn: true, detail: reason.warn, fix: reason.fix };
+    return { id, ok: false, detail: reason, fix };
   });
   const setupOk = checks.every((item) => item.ok);
   for (const [id, command, args] of GATES) {
@@ -604,27 +621,40 @@ function codesignDisplay(path) {
   return parseCodesignDisplay(run('codesign', ['-dvv', path]).stderr);
 }
 
-/**
- * Notarizes the .app on its own and staples its ticket, before it goes into the DMG.
- * The DMG's ticket stays with the DMG: an app copied out of it carries no ticket of its own and fails
- * `syspolicy_check distribution`, and Gatekeeper must reach Apple to accept it.
- */
-function notarizeApp(app, dir, version) {
+/** The code directory hash of a signed bundle, or null. A rebuilt app has another one. */
+const cdhashOf = (path) => /^CDHash=(\w+)$/m.exec(run('codesign', ['-dvvv', path]).stderr)?.[1] ?? null;
+
+/** Submits the .app to the notary service without waiting. Returns what build.json keeps as `appNotary`. */
+function submitApp(app, dir) {
   const zip = join(dir, `${PRODUCT_NAME}-app.zip`);
   must('ditto', ['-c', '-k', '--keepParent', app, zip]);
-  const submitted = run('xcrun', ['notarytool', 'submit', zip, ...NOTARY_AUTH, '--wait', '--timeout', '60m', '--output-format', 'json']);
+  const submitted = run('xcrun', ['notarytool', 'submit', zip, ...NOTARY_AUTH, '--no-wait', '--output-format', 'json']);
   rmSync(zip, { force: true });
   const result = JSON.parse(submitted.stdout || '{}');
   if (!result.id) fail(`notarytool submit ${zip}: exit ${submitted.status}\n${submitted.stderr.trim()}`);
-  if (result.status === undefined) pending(`app notarization ${result.id} is still in progress (${result.message ?? 'no status'}); a new run builds and submits again`);
-  must('xcrun', ['notarytool', 'log', result.id, ...NOTARY_AUTH, join(dir, 'app-notary-log.json')]);
-  if (result.status !== NOTARY_ACCEPTED) fail(`app notarization ${result.id} ended as ${result.status}; dist/release/${version}/app-notary-log.json names each problem`);
+  return { id: result.id, status: NOTARY_IN_PROGRESS, cdhash: cdhashOf(app) };
+}
+
+/**
+ * Waits for the .app's own notarization, saves its log, and staples its ticket, before the app goes into the DMG.
+ * The DMG's ticket stays with the DMG: an app copied out of it carries no ticket of its own and fails
+ * `syspolicy_check distribution`, and Gatekeeper must reach Apple to accept it.
+ */
+function notarizeApp(record, dir, app, buildFile) {
+  const { id } = record.appNotary;
+  stream('xcrun', ['notarytool', 'wait', id, ...NOTARY_AUTH, '--timeout', '60m']);
+  const outcome = notaryOutcome(JSON.parse(must('xcrun', ['notarytool', 'info', id, ...NOTARY_AUTH, '--output-format', 'json'])));
+  if (outcome.state === NOTARY_STATE.pending) pending(`app notarization ${id} is still in progress`);
+  must('xcrun', ['notarytool', 'log', id, ...NOTARY_AUTH, join(dir, 'app-notary-log.json')]);
+  record.appNotary.status = outcome.status;
+  writeJson(buildFile, record);
+  if (outcome.state === NOTARY_STATE.rejected) fail(`app notarization ${id} ended as ${outcome.status}; dist/release/${record.version}/app-notary-log.json names each problem`);
   must('xcrun', ['stapler', 'staple', app]);
   must('xcrun', ['stapler', 'validate', app]);
 }
 
-/** Steps 1 to 9: build the app at the release commit, notarize and staple it, package the DMG, sign it, submit it. Returns the build record. */
-function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
+/** Steps 1 to 5: build the app at the release commit, check its signature, submit it to the notary service. Returns the build record. */
+function buildApp({ version, sha, adhoc, identity: override }, dir) {
   const identity = adhoc ? null : requireIdentity(override);
   if (adhoc) {
     const wrong = manifestVersionsAt(readWorktree).filter((manifest) => manifest.version !== version);
@@ -653,8 +683,15 @@ function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
     const entitlements = plistToJson(must('codesign', ['-d', '--entitlements', '-', '--xml', app]));
     const problems = notarizationProblems(display, entitlements, identity.teamId);
     if (problems.length > 0) fail(`${APP_BUNDLE} would fail notarization: ${problems.join('; ')}`);
-    notarizeApp(app, dir, version);
+    return { ...record, appNotary: submitApp(app, dir) };
   }
+  return record;
+}
+
+/** Steps 6 to 9: wait for the app's notarization and staple its ticket, package the DMG, sign it, submit it. Returns the build record. */
+function packageAndSubmit(record, dir, dmg, buildFile, adhoc) {
+  const app = inRoot(APP_BUNDLE);
+  if (!adhoc) notarizeApp(record, dir, app, buildFile);
 
   const stage = join(dir, 'dmg-stage');
   rmSync(stage, { recursive: true, force: true });
@@ -665,7 +702,7 @@ function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
   rmSync(stage, { recursive: true, force: true });
   if (adhoc) return record;
 
-  must('codesign', ['--sign', identity.identity, '--timestamp', '--identifier', DMG_IDENTIFIER, dmg]);
+  must('codesign', ['--sign', record.identity, '--timestamp', '--identifier', DMG_IDENTIFIER, dmg]);
   const submitted = JSON.parse(must('xcrun', ['notarytool', 'submit', dmg, ...NOTARY_AUTH, '--no-wait', '--output-format', 'json']));
   return { ...record, notary: { id: submitted.id, status: NOTARY_IN_PROGRESS } };
 }
@@ -693,7 +730,9 @@ function build(options) {
 
   let record = adhoc ? null : readJson(buildFile);
   const sameBuild = record !== null && record.sha === sha && record.signature === SIGNATURE.developerId && existsSync(dmg);
-  if (sameBuild && record.sha256 === sha256Of(dmg)) {
+  // A failed verify asks for a new build of the same commit: status names build-artifact until verify.json is replaced.
+  const verifyFailed = readJson(join(dir, 'verify.json'))?.ok === false;
+  if (sameBuild && !verifyFailed && record.sha256 === sha256Of(dmg)) {
     print(record);
     return;
   }
@@ -701,8 +740,15 @@ function build(options) {
 
   const resume = sameBuild && record.notary?.id && !record.sha256;
   if (!resume) {
-    record = buildAndSubmit(options, dir, dmg);
-    rmSync(join(dir, 'verify.json'), { force: true });
+    // An earlier run submitted the app of this commit, and it is still the app on disk: go on from the wait.
+    const resumeApp = record !== null && record.sha === sha && record.signature === SIGNATURE.developerId && !record.notary
+      && [NOTARY_IN_PROGRESS, NOTARY_ACCEPTED].includes(record.appNotary?.status) && Boolean(record.appNotary.cdhash) && record.appNotary.cdhash === cdhashOf(inRoot(APP_BUNDLE));
+    if (!resumeApp) {
+      record = buildApp(options, dir);
+      rmSync(join(dir, 'verify.json'), { force: true });
+      writeJson(buildFile, record);
+    }
+    record = packageAndSubmit(record, dir, dmg, buildFile, adhoc);
     writeJson(buildFile, record);
   }
   if (!adhoc) notarize(record, dir, dmg, buildFile);
@@ -749,8 +795,10 @@ function launchProbe(app) {
     const read = (file) => readFileSync(file, 'utf8').trim();
     const child = spawn('open', ['-W', '-n', '--env', 'PLAINTASK_MEASURE_LAUNCH=1', '--stdout', outFile, '--stderr', errFile, app], { stdio: 'ignore' });
     let settled = false;
-    const settle = (ready, detail) => {
-      if (settled) return;
+    const on = (event) => {
+      // launchVerdict reads no log once settled: the lines below delete them, and `open` exits after that.
+      const verdict = launchVerdict(settled, event, { stdout: () => read(outFile), stderr: () => read(errFile) });
+      if (verdict === null) return;
       settled = true;
       clearInterval(poll);
       clearTimeout(timer);
@@ -758,19 +806,12 @@ function launchProbe(app) {
       run('pkill', ['-f', join(app, APP_BINARY)]);
       child.kill();
       rmSync(logs, { recursive: true, force: true });
-      done({ ready, detail });
+      done(verdict);
     };
-    const poll = setInterval(() => {
-      if (read(outFile).includes('ready')) settle(true, `"ready" after ${Date.now() - started} ms`);
-    }, 50);
-    const timer = setTimeout(() => settle(false, `no "ready" within ${LAUNCH_LIMIT_MS} ms; stderr: ${read(errFile)}`), LAUNCH_LIMIT_MS);
-    child.once('error', (error) => settle(false, `open did not start: ${error.code}`));
-    child.once('exit', (code) => {
-      // settle() kills `open` and deletes the log files, so its exit after a settle must not read them.
-      if (settled) return;
-      if (read(outFile).includes('ready')) settle(true, `"ready" after ${Date.now() - started} ms`);
-      else settle(false, `the app exited (open: ${code}) before "ready"; stderr: ${read(errFile)}`);
-    });
+    const poll = setInterval(() => on({ type: 'poll', elapsedMs: Date.now() - started }), 50);
+    const timer = setTimeout(() => on({ type: 'timeout', limitMs: LAUNCH_LIMIT_MS }), LAUNCH_LIMIT_MS);
+    child.once('error', (error) => on({ type: 'error', code: error.code }));
+    child.once('exit', (code) => on({ type: 'exit', code, elapsedMs: Date.now() - started }));
   });
 }
 
@@ -780,6 +821,7 @@ async function gatherFacts(dir, dmg, adhoc) {
   try {
     const app = join(mount, `${PRODUCT_NAME}.app`);
     const hasApp = existsSync(join(app, APP_BINARY));
+    const appNotaryLog = readJson(join(dir, 'app-notary-log.json'));
     const notaryLog = readJson(join(dir, 'notary-log.json'));
     return {
       dmgSha256: sha256Of(dmg),
@@ -796,6 +838,7 @@ async function gatherFacts(dir, dmg, adhoc) {
       bundleBuild: hasApp ? plistValue(join(app, 'Contents/Info.plist'), 'CFBundleVersion') : null,
       archs: hasApp ? run('lipo', ['-archs', join(app, APP_BINARY)]).stdout.trim() : null,
       launch: hasApp ? await launchProbe(app) : { ready: false, detail: 'no app to launch' },
+      appNotaryLog: appNotaryLog && { status: appNotaryLog.status, issues: appNotaryLog.issues ?? null },
       notaryLog: notaryLog && { status: notaryLog.status, issues: notaryLog.issues ?? null },
     };
   } finally {
@@ -906,9 +949,11 @@ function publish({ version }) {
   }
 
   const report = join(dir, 'release-report.md');
+  const appNotaryLog = readJson(join(dir, 'app-notary-log.json'));
   writeFileSync(report, render(asset('release-report.md'), {
     version, tag, sha: record.sha, releaseUrl: release.url, prUrl: findPr(version)?.url ?? 'none', publishedAt: release.publishedAt,
     dmgName: record.dmg, bytes: String(record.bytes), sha256: record.sha256, identity: record.identity, teamId: record.teamId,
+    appNotaryId: appNotaryLog?.jobId ?? 'none', appNotaryStatus: appNotaryLog?.status ?? 'app-notary-log.json is missing',
     notaryId: record.notary.id, notaryStatus: record.notary.status,
     checks: verdict.checks.map((item) => `| ${item.id} | ${item.ok ? 'pass' : 'FAIL'} | ${item.detail} |`).join('\n'),
   }));

@@ -1,6 +1,6 @@
 # Task: verify the built DMG
 
-Check the artifact independently of the build that made it. You were given no build output, on purpose. One command runs the checks; you then read Apple's notary log, which no script can judge.
+Check the artifact independently of the build that made it. You were given no build output, on purpose. One command runs the checks; you then read Apple's two notary logs, which no script can judge.
 
 ## Inputs
 
@@ -19,7 +19,7 @@ Run from the repo root. Allow 5 minutes. The command mounts the DMG and starts t
 | 1 | Stop. Return `failed`. NOTES lists the id and `detail` of each check with `"ok": false`. |
 | 2 | Stop. Return `blocked`: there is no finished build. |
 
-3. Read `dist/release/<version>/notary-log.json`. Apple's guidance is to read it even when notarization succeeds. Report in NOTES:
+3. Read `dist/release/<version>/app-notary-log.json` (the app's submission) and `dist/release/<version>/notary-log.json` (the DMG's). The `app-notary-log` and `notary-log` checks already require each to be `Accepted` with no error. Apple's guidance is to read them even when notarization succeeds. Report in NOTES, for each log:
    - `status` and `statusSummary`.
    - Every item in `issues`, with its `severity`, `path`, and `message`. `issues: null` means none.
    A warning does not fail this task. It goes to the person, who decides before publishing.
@@ -38,5 +38,5 @@ End your reply with exactly this block and nothing after it:
 RESULT: ok | failed | blocked
 PHASE: verify-artifact
 FACTS: <the command's stdout JSON, verbatim; "none" when it printed nothing>
-NOTES: <at most 5 lines: the notary log status and each issue, or the failed checks>
+NOTES: <at most 5 lines: each notary log's status and issues, or the failed checks>
 ```
