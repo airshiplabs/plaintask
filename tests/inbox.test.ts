@@ -52,7 +52,7 @@ test('ticking a task changes one character of the file and nothing else', () => 
     const ticked = serialize(toggle(doc, first.id));
     const at = changed(text, ticked);
     assert.equal(at.length, 1, 'ticking should change exactly one character; it changed ' + at.length);
-    assert.equal(text[at[0]!] + ticked[at[0]!], ' x', 'the changed character should go from a space to an x');
+    assert.equal(text.charAt(at[0]!) + ticked.charAt(at[0]!), ' x', 'the changed character should go from a space to an x');
     assert.equal(serialize(toggle(parse(ticked), first.id)), text, 'ticking the same task again should restore the file exactly');
   }
 });

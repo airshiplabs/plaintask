@@ -10,7 +10,8 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"]
   },
-  "include": ["src", "../../packages/design-system/components/index.d.ts"]
+  "include": ["src", "../../tests/*.ts", "../../packages/design-system/components/index.d.ts"]
 }
