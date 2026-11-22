@@ -765,6 +765,8 @@ function launchProbe(app) {
     const timer = setTimeout(() => settle(false, `no "ready" within ${LAUNCH_LIMIT_MS} ms; stderr: ${read(errFile)}`), LAUNCH_LIMIT_MS);
     child.once('error', (error) => settle(false, `open did not start: ${error.code}`));
     child.once('exit', (code) => {
+      // settle() kills `open` and deletes the log files, so its exit after a settle must not read them.
+      if (settled) return;
       if (read(outFile).includes('ready')) settle(true, `"ready" after ${Date.now() - started} ms`);
       else settle(false, `the app exited (open: ${code}) before "ready"; stderr: ${read(errFile)}`);
     });
