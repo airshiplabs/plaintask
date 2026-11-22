@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-commit-msg-hook.mjs\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-git-hooks.mjs\""
           }
         ]
       }

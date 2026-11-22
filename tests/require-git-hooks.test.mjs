@@ -1,7 +1,7 @@
-// claude-commit-hook.test.mjs - the Claude Code PreToolUse hook .claude/hooks/require-commit-msg-hook.mjs,
+// require-git-hooks.test.mjs - the Claude Code PreToolUse hook .claude/hooks/require-git-hooks.mjs,
 // fed tool calls on stdin against throwaway git repos: it blocks `git commit` (exit 2) unless the
-// commit-msg git hook will run, and allows every other command (exit 0).
-//   node --test tests/claude-commit-hook.test.mjs
+// commit-msg and pre-commit git hooks will run, and allows every other command (exit 0).
+//   node --test tests/require-git-hooks.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const hookScript = fileURLToPath(new URL('../.claude/hooks/require-commit-msg-hook.mjs', import.meta.url));
+const hookScript = fileURLToPath(new URL('../.claude/hooks/require-git-hooks.mjs', import.meta.url));
 
 // A child env that cannot reach the real repo or the user's git config.
 function childEnv(tmp) {
@@ -21,19 +21,23 @@ function childEnv(tmp) {
   return { ...env, GIT_CONFIG_GLOBAL: join(tmp, 'empty-global-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
 }
 
-// Two repos in one temp dir: `bare` has no commit-msg hook, `ready` has an executable one.
+// Repos in one temp dir: `bare` has no hooks, `half` only commit-msg, `ready` both, executable.
 async function makeRepos(t) {
-  const tmp = await mkdtemp(join(tmpdir(), 'claude-commit-hook-'));
+  const tmp = await mkdtemp(join(tmpdir(), 'require-git-hooks-'));
   t.after(() => rm(tmp, { recursive: true, force: true }));
   const env = childEnv(tmp);
   await writeFile(env.GIT_CONFIG_GLOBAL, '');
-  for (const name of ['bare', 'ready']) {
+  for (const name of ['bare', 'half', 'ready']) {
     const init = spawnSync('git', ['init', '-q', join(tmp, name)], { env, encoding: 'utf8' });
     assert.equal(init.status, 0, `setup: git init ${name} failed: ${init.stderr}`);
   }
-  await mkdir(join(tmp, 'ready/.git/hooks'), { recursive: true });
-  await writeFile(join(tmp, 'ready/.git/hooks/commit-msg'), '#!/bin/sh\nexit 0\n');
-  await chmod(join(tmp, 'ready/.git/hooks/commit-msg'), 0o755);
+  for (const [repo, hooks] of [['half', ['commit-msg']], ['ready', ['commit-msg', 'pre-commit']]]) {
+    await mkdir(join(tmp, repo, '.git/hooks'), { recursive: true });
+    for (const hook of hooks) {
+      await writeFile(join(tmp, repo, '.git/hooks', hook), '#!/bin/sh\nexit 0\n');
+      await chmod(join(tmp, repo, '.git/hooks', hook), 0o755);
+    }
+  }
   await mkdir(join(tmp, 'plain'));
   return { tmp, env };
 }
@@ -43,13 +47,14 @@ function runHook(env, cwd, command) {
   return spawnSync(process.execPath, [hookScript], { env, input, encoding: 'utf8' });
 }
 
-test('require-commit-msg-hook allows or blocks each Bash command', async (t) => {
+test('require-git-hooks allows or blocks each Bash command', async (t) => {
   const { tmp, env } = await makeRepos(t);
   const rows = [
     { cwd: 'bare', command: 'ls -la', exit: 0 },
     { cwd: 'bare', command: 'git log --grep commit', exit: 0 },
     { cwd: 'bare', command: 'git commit -m "feat: add x"', exit: 2, stderr: /not installed/ },
     { cwd: 'bare', command: 'git add . && git commit -m "feat: add x"', exit: 2, stderr: /not installed/ },
+    { cwd: 'half', command: 'git commit -m "feat: add x"', exit: 2, stderr: /pre-commit git hook is not installed/ },
     { cwd: 'ready', command: 'git commit -m "feat: add x"', exit: 0 },
     { cwd: 'ready', command: 'git commit --no-verify -m "feat: add x"', exit: 2, stderr: /--no-verify/ },
     { cwd: 'ready', command: 'git commit -n -m "feat: add x"', exit: 2, stderr: /--no-verify/ },
@@ -65,7 +70,7 @@ test('require-commit-msg-hook allows or blocks each Bash command', async (t) => 
   }
 });
 
-test('require-commit-msg-hook blocks a commit when core.hooksPath bypasses the installed hook', async (t) => {
+test('require-git-hooks blocks a commit when core.hooksPath bypasses the installed hooks', async (t) => {
   const { tmp, env } = await makeRepos(t);
   const config = spawnSync('git', ['-C', join(tmp, 'ready'), 'config', 'core.hooksPath', '.githooks'], { env, encoding: 'utf8' });
   assert.equal(config.status, 0, `setup: git config failed: ${config.stderr}`);

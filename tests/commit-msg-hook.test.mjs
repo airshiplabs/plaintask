@@ -1,6 +1,6 @@
 // commit-msg-hook.test.mjs - the tracked .githooks/commit-msg hook in throwaway git repos that sign every commit
 // with a throwaway SSH key: commit-time rejection in the main checkout, a subdirectory, and a linked worktree,
-// the hook's cleanup-mode choice, and the install contract (prepare copies only commit-msg into the git dir).
+// the hook's cleanup-mode choice, and the install contract (prepare copies only commit-msg and pre-commit into the git dir).
 //   node --test tests/commit-msg-hook.test.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -43,6 +43,7 @@ function mustRun(command, args, env, cwd) {
   return result.stdout;
 }
 
+const HOOKS = Object.freeze(['commit-msg', 'pre-commit']);
 const prepare = JSON.parse(readFileSync(repoPath('package.json'), 'utf8')).scripts.prepare;
 
 // A temp repo with SSH signing on, the repo's hook and skill directory committed in a signed seed commit,
@@ -62,8 +63,10 @@ async function makeRepo(t) {
   mustRun('git', ['-C', tmp, 'config', 'commit.verbose', 'true'], env);
 
   await mkdir(join(tmp, '.githooks'));
-  await cp(repoPath('.githooks/commit-msg'), join(tmp, '.githooks/commit-msg'));
-  await chmod(join(tmp, '.githooks/commit-msg'), 0o755);
+  for (const hook of HOOKS) {
+    await cp(repoPath(`.githooks/${hook}`), join(tmp, `.githooks/${hook}`));
+    await chmod(join(tmp, `.githooks/${hook}`), 0o755);
+  }
   await cp(repoPath('.claude/skills/conventional-commits'), join(tmp, '.claude/skills/conventional-commits'), { recursive: true });
   mustRun('git', ['-C', tmp, 'add', '.githooks', '.claude'], env);
   mustRun('git', ['-C', tmp, 'commit', '-q', '-m', 'chore: seed the test repo'], env);
@@ -156,15 +159,17 @@ function modeAndText(path) {
   }
 }
 
-// prepare copies only commit-msg, executable and byte-identical, and never sets core.hooksPath.
+// prepare copies only commit-msg and pre-commit, executable and byte-identical, and never sets core.hooksPath.
 test('commit-msg hook in a signed temp repo: install contract', async (t) => {
   const { tmp, env } = await makeRepo(t);
-  const tracked = modeAndText(repoPath('.githooks/commit-msg'));
-  const installed = modeAndText(join(tmp, '.git/hooks/commit-msg'));
+  for (const hook of HOOKS) {
+    const tracked = modeAndText(repoPath(`.githooks/${hook}`));
+    const installed = modeAndText(join(tmp, `.git/hooks/${hook}`));
 
-  assert.notEqual(tracked.mode & 0o111, 0, '.githooks/commit-msg has no execute bit');
-  assert.notEqual(installed.mode & 0o111, 0, 'the installed commit-msg has no execute bit');
-  assert.equal(installed.text, tracked.text);
+    assert.notEqual(tracked.mode & 0o111, 0, `.githooks/${hook} has no execute bit`);
+    assert.notEqual(installed.mode & 0o111, 0, `the installed ${hook} has no execute bit`);
+    assert.equal(installed.text, tracked.text);
+  }
   assert.notEqual(git(tmp, ['config', '--get', 'core.hooksPath'], env).status, 0, 'prepare set core.hooksPath');
 });
 

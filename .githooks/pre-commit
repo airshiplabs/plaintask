@@ -1,0 +1,21 @@
+#!/bin/sh
+# git pre-commit hook: rejects a commit whose staged CHANGELOG.md breaks .claude/skills/keep-a-changelog/FORMAT.md.
+# Git runs it from the worktree root. It judges each staged blob, not the working-tree file.
+# A staged CHANGELOG.md outside CHANGELOGS (changelog.mjs) fails with a usage error, so a new changelog
+# gets listed before it lands. Deleted changelogs pass here; CI's full check reports them missing.
+# Exit 0: no staged changelog, or each conforms. 1: violations, printed on stderr. 127: node is not on PATH.
+set -u
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node is not on PATH (GUI git clients can skip the shell profile); add node's directory to PATH" >&2
+  exit 127
+fi
+failed=0
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  if ! git show ":$path" | node .claude/skills/keep-a-changelog/validate.mjs --path="$path" -; then
+    failed=1
+  fi
+done <<PATHS
+$(git diff --cached --name-only --diff-filter=ACMR -- 'CHANGELOG.md' '*/CHANGELOG.md')
+PATHS
+exit "$failed"
