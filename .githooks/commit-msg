@@ -1,0 +1,19 @@
+#!/bin/sh
+# git commit-msg hook: rejects a commit whose message breaks Conventional Commits 1.0.0.
+# Git runs it from the worktree root with the message file as $1.
+# Git sets GIT_EDITOR=: when no editor opens (-m, -F, --no-edit), and then keeps "#" lines in the stored
+# message, so the hook judges them (--cleanup=whitespace). With an editor, git drops "#" lines and the
+# commit.verbose scissors section (--cleanup=strip).
+# Exit 0: the message conforms. 1: violations, printed on stderr. 2: usage or read error.
+# 127: node is not on PATH. Any non-zero exit aborts the commit.
+set -u
+if ! command -v node >/dev/null 2>&1; then
+  echo "commit-msg: node is not on PATH (GUI git clients can skip the shell profile); add node's directory to PATH" >&2
+  exit 127
+fi
+if [ "${GIT_EDITOR:-}" = ":" ]; then
+  mode="whitespace"
+else
+  mode="strip"
+fi
+exec node .claude/skills/conventional-commits/validate.mjs --cleanup="$mode" "$1"

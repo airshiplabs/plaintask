@@ -1,0 +1,51 @@
+# Fails a pull request when any of its commits, or its title, breaks Conventional Commits 1.0.0.
+# A squash merge writes the PR title as the main subject, so the title is checked too.
+name: Commit messages
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commit-messages-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          validator=.claude/skills/conventional-commits/validate.mjs
+          # Its own command, so set -e stops the job when rev-list fails; in a for word list the failure is lost.
+          shas=$(git rev-list --reverse "origin/$BASE_REF..$HEAD")
+          n=0
+          failed=0
+          for sha in $shas; do
+            n=$((n + 1))
+            if ! violations=$(git log -1 --format=%B "$sha" | node "$validator" - 2>&1); then
+              git log -1 --format='%h %s' "$sha"
+              echo "$violations"
+              failed=1
+            fi
+          done
+          if ! violations=$(printf '%s\n' "$PR_TITLE" | node "$validator" - 2>&1); then
+            echo "PR title"
+            echo "$violations"
+            failed=1
+          fi
+          echo "validated $n commits and the PR title"
+          exit "$failed"
