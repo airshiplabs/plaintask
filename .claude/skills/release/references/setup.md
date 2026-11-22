@@ -20,6 +20,12 @@ Needs an Apple Developer Program membership and the Account Holder role.
 
 Xcode creates the private key in the login keychain and installs the certificate.
 
+When Xcode answers "This operation can only be performed by the Account Holder" even though the signed-in Apple ID is the Account Holder, create the certificate on the web instead:
+
+1. In Keychain Access, choose Keychain Access, Certificate Assistant, Request a Certificate From a Certificate Authority. Enter the Account Holder's email, choose Saved to disk. This puts the private key in the login keychain.
+2. At developer.apple.com/account, signed in as the Account Holder, open Certificates and click `+`. Choose Developer ID Application, then the G2 Sub-CA profile, and upload the `.certSigningRequest` file.
+3. Download the `.cer` file and double-click it. Choose the login keychain, not iCloud: the certificate pairs with its private key only in the keychain that holds the key.
+
 A certificate that lives on another Mac: export it there from Keychain Access as a `.p12` file (certificate and private key together), then double-click the file on this Mac to import it.
 
 Check:
@@ -29,6 +35,10 @@ security find-identity -v -p codesigning
 ```
 
 One line must read `"Developer ID Application: <name> (<TEAMID>)"`. With two or more such lines, pass the SHA-1 hash of the one to use: `release.mjs build --identity <hash>`.
+
+When `security find-identity -p codesigning` (without `-v`) lists the certificate but `-v` reports `0 valid identities found`, the intermediate certificate "Developer ID Certification Authority" (G2) is missing from the keychain. Download `DeveloperIDG2CA.cer` from apple.com/certificateauthority and double-click it.
+
+Back up the identity once it is valid. The private key exists only in the keychain of the Mac that created it, and a lost key means a new certificate. Export the certificate and its key from Keychain Access as a `.p12` file, store the file and its password in a password manager, then delete the local `.p12`. The `.certSigningRequest` and `.cer` files hold no secret and can be deleted: the `.cer` downloads again from developer.apple.com.
 
 ## `signing-probe`: the key signs without a prompt
 
