@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Plaintask",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "identifier": "com.airshiplabs.plaintask",
   "build": {
     "frontendDist": "../dist",
