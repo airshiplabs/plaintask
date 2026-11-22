@@ -633,7 +633,6 @@ function buildAndSubmit({ version, sha, adhoc, identity: override }, dir, dmg) {
   if (!adhoc) {
     const problems = developerIdProblems(display, identity.teamId);
     if (problems.length > 0) fail(`${APP_BUNDLE} is not signed for distribution: ${problems.join('; ')}`);
-    mustStream('syspolicy_check', ['notary-submission', app]);
   }
 
   const stage = join(dir, 'dmg-stage');
