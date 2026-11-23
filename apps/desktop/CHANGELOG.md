@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
 ### Added
 
 - The Dock icon shows the number of open Inbox tasks ([#66])
@@ -44,7 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes that follow the macOS appearance ([#30])
 - The About window shows the build's git commit as its build number ([#44])
 
-[Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0...HEAD
+[Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.0...HEAD
+[0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0...desktop-v0.2.0
 [0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0
 [#30]: https://github.com/airshiplabs/plaintask/pull/30
 [#44]: https://github.com/airshiplabs/plaintask/pull/44
