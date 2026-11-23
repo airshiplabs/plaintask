@@ -8,8 +8,9 @@
 import type { Task } from './inbox.ts';
 
 /** How long a ticked row stays drawn: the design system's complete() holds it for 620 ms, then folds it over 380 ms. A ticked
-    row carries data-leaving for that second. It is no longer one of the list's tasks: places skip it and it cannot be ticked again. */
-export const LEAVING = 'data-leaving';
+    row carries data-leaving for that second. It is no longer one of the list's tasks: places skip it and it cannot be ticked again.
+    No code here reads the attribute: tests/desktop-app.test.mjs and the docs/feature-map recipes select rows by it. */
+const LEAVING = 'data-leaving';
 
 interface Row {
   readonly key: string;
@@ -31,6 +32,8 @@ export interface Rows {
   count(): number;
   /** The place among the staying rows of this row, or -1. */
   indexOf(li: Element): number;
+  /** The task of this row while it is a staying row; undefined once it is leaving or not listed. */
+  taskOf(li: Element): Task | undefined;
   /** The staying row at this place if it is drawn. */
   row(at: number): HTMLElement | undefined;
   /** The staying row at this place, drawn and scrolled into view. */
@@ -161,6 +164,7 @@ export function rowList(list: HTMLElement, scroller: HTMLElement, draw: (task: T
     },
     count: () => staying().length,
     indexOf(li) { const row = of(li); return row && !row.leaving ? staying().indexOf(row) : -1; },
+    taskOf(li) { const row = of(li); return row && !row.leaving ? row.task : undefined; },
     row(place) { const el = at(place)?.el; return el?.isConnected ? el : undefined; },
     reveal,
     leave(li) {

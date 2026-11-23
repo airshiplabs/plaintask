@@ -1,12 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import { mount } from './app.ts';
 
+/** Runs a Rust command. Tauri rejects with the Rust error's text itself; the Backend rejects with an Error. */
+const call = <T>(command: string, args?: Record<string, unknown>) =>
+  invoke<T>(command, args).catch((e: unknown) => { throw e instanceof Error ? e : new Error(String(e)); });
+
 await mount({
-  folder: () => invoke<string | null>('folder'),
-  chooseFolder: () => invoke<string | null>('choose_folder'),
-  read: () => invoke<string | null>('read_inbox'),
-  write: text => invoke<void>('write_inbox', { text }),
-  badge: count => invoke<void>('set_badge', { count }),
+  folder: () => call<string | null>('folder'),
+  chooseFolder: () => call<string | null>('choose_folder'),
+  read: () => call<string | null>('read_inbox'),
+  write: text => call<void>('write_inbox', { text }),
+  badge: count => call<void>('set_badge', { count }),
 });
 
 // The window is hidden until the page is drawn. Frames only run once it is visible:

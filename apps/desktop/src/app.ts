@@ -1,6 +1,6 @@
 // It knows nothing of Tauri: everything outside the page comes through the Backend it is mounted with.
 import { append, cleanTitle, NO_TITLE, parse, rename, serialize, tasks, toggle, type Doc, type Task, type TaskId } from './inbox.ts';
-import { LEAVING, rowList } from './rows.ts';
+import { rowList } from './rows.ts';
 
 export interface Backend {
   /** The task folder's path, or null when the person has not chosen one. */
@@ -8,9 +8,9 @@ export interface Backend {
   /** Asks the person for a folder. Null when they cancel. */
   chooseFolder(): Promise<string | null>;
   /** The text of Inbox.md, '' when the folder has none yet, or null when the folder itself is gone (moved, renamed,
-      deleted or unmounted). Rejects with the reason it cannot be read. */
+      deleted or unmounted). Rejects with an Error whose message is the reason it cannot be read. */
   read(): Promise<string | null>;
-  /** Replaces the text of Inbox.md. Rejects with the reason it cannot be saved. */
+  /** Replaces the text of Inbox.md. Rejects with an Error whose message is the reason it cannot be saved. */
   write(text: string): Promise<void>;
   /** Shows this number on the app's Dock icon. 0 removes it. */
   badge(count: number): Promise<void>;
@@ -24,13 +24,17 @@ const $ = <E extends HTMLElement = HTMLElement>(selector: string, within: Parent
   return el;
 };
 const esc = (s: string) => s.replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
-/** Tauri rejects with the Rust error's text itself; anything else thrown is an Error. */
 const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** A row's key: its task's id as one string, so it can sit in a data attribute. */
-const key = (task: Task) => task.id.occurrence + ':' + task.id.title;
-const idOf = (rowKey: string): TaskId => ({ occurrence: Number(rowKey.slice(0, rowKey.indexOf(':'))), title: rowKey.slice(rowKey.indexOf(':') + 1) });
-const rowHTML = (task: Task) => P.TaskRow({ id: key(task), title: task.title });
+const key = (id: TaskId) => id.occurrence + ':' + id.title;
+const rowKey = (task: Task) => key(task.id);
+const rowHTML = (task: Task) => P.TaskRow({ id: rowKey(task), title: task.title });
+/** The task row `target` is in, or null. With `part`, only when `target` is inside that part of the row, such as its checkbox. */
+function rowOf(target: EventTarget | null, part?: string): HTMLElement | null {
+  if (!(target instanceof Element) || (part && !target.closest(part))) return null;
+  return target.closest<HTMLElement>('li[data-row]');
+}
 const openTasks = (doc: Doc) => tasks(doc).filter(task => !task.done);
 
 const notice = (title: string, body: string, button: string) =>
@@ -50,7 +54,7 @@ const EMPTY = P.EmptyState({ title: 'Inbox zero', body: 'New tasks you capture l
 /** Draws the window and resolves once it shows the folder's Inbox, or the request to choose a folder. */
 export async function mount(backend: Backend): Promise<void> {
   const list = $('[data-list]'), head = $('[data-head]'), toasts = $('[data-toasts]');
-  const rows = rowList(list, $('[data-scroll]'), rowHTML, key, EMPTY);
+  const rows = rowList(list, $('[data-scroll]'), rowHTML, rowKey, EMPTY);
   $('[data-side]').innerHTML = P.Sidebar({ items: [{ id: 'inbox', label: 'Inbox', icon: 'inbox', current: true }] });
   P.moveIndicator($('.pt-nav'));
   const badge = $('[data-badge="inbox"]');
@@ -70,29 +74,27 @@ export async function mount(backend: Backend): Promise<void> {
   }
   const check = (li: Element) => $('.pt-check', li);
   const showDockCount = (count: number) => { backend.badge(count).catch((e: unknown) => console.error('Dock badge:', reason(e))); };
-  function showCount(count: number) {
+  function showCount(count: number, animate: boolean) {
     const label = count ? String(count) : '';
     if (badge.textContent === label) return;
-    const first = text === null;
     badge.textContent = label;
     showDockCount(count);
-    if (!first) P.bump(badge);
+    if (animate) P.bump(badge);
   }
 
-  function showTasks(open: Task[]) {
+  function showTasks(open: Task[], animate = true) {
     rows.show(open);
-    showCount(open.length);
+    showCount(open.length, animate);
   }
   let noticeShown: string | null = null;
   function showNotice(html: string) {
     if (text === null && html === noticeShown) return;   // the same notice again, as after a reread on focus: keep it, and the keyboard on its button
     noticeShown = html;
+    text = null;
     closeComposer(false);
     showHeader(false);
     rows.clear(html);
-    if (badge.textContent) showDockCount(0);
-    badge.textContent = '';
-    text = null;
+    showCount(0, false);
   }
   const toast = (message: string) => { P.toast(toasts, message); };
 
@@ -103,19 +105,26 @@ export async function mount(backend: Backend): Promise<void> {
     return run;
   }
 
+  /** The text of Inbox.md, or null once the window shows that the task folder cannot be found. Rejects as Backend.read does. */
+  async function readInbox(): Promise<string | null> {
+    const fresh = await backend.read();
+    if (fresh === null) showNotice(folderGone());
+    return fresh;
+  }
+
   /** Reads Inbox.md and redraws the list if the file's text has changed since it was last drawn.
       `redraw` draws it from the file regardless: the way back after an edit that failed part-way. */
   const load = (redraw = false) => inTurn(async () => {
     chosen = true;
     let fresh: string | null;
-    try { fresh = await backend.read(); }
+    try { fresh = await readInbox(); }
     catch (e) { showNotice(notice('Could not open Inbox.md', reason(e), 'Choose another folder')); return; }
-    if (fresh === null) { showNotice(folderGone()); return; }
-    if (fresh === text && !redraw) return;
-    if (text === null) showHeader(true);
-    if (text === null || redraw) rows.clear('');
-    showTasks(openTasks(parse(fresh)));
+    if (fresh === null || (fresh === text && !redraw)) return;
+    const shown = text !== null;
     text = fresh;
+    if (!shown) showHeader(true);
+    if (!shown || redraw) rows.clear('');
+    showTasks(openTasks(parse(fresh)), shown);
   });
   const failed = (e: unknown) => { toast(reason(e)); return load(true); };
 
@@ -125,8 +134,8 @@ export async function mount(backend: Backend): Promise<void> {
       Rejects when this change cannot be made or saved. */
   const edit = async (change: (doc: Doc) => Doc): Promise<Doc | null> => {
     await inTurn(async () => {
-      const fresh = await backend.read();
-      if (fresh === null) { showNotice(folderGone()); throw new Error(FOLDER_GONE + '.'); }
+      const fresh = await readInbox();
+      if (fresh === null) throw new Error(FOLDER_GONE + '.');
       const out = serialize(change(parse(fresh)));
       await backend.write(out);
       text = out;
@@ -194,17 +203,18 @@ export async function mount(backend: Backend): Promise<void> {
   }
 
   function complete(li: HTMLElement) {
-    if (li.hasAttribute(LEAVING)) return;
+    const id = rows.taskOf(li)?.id;
+    if (!id) return;
     const started = performance.now();
-    const id = idOf(li.dataset.row!);
     const hadFocus = li.contains(document.activeElement);
     rows.leave(li);
-    showCount(rows.count());
+    showCount(rows.count(), true);
     P.complete($('.pt-task', li), () => {
       const next = hadFocus ? rows.beside(li) : undefined;
       if (!rows.drop(li)) return;   // the list was drawn again while the row was folding (Undo, or the file changed)
       // The fold moved the keyboard to the neighbouring row. If that row is leaving too, or there was none, find one that is staying.
-      const lost = document.activeElement === document.body || document.activeElement?.closest('li[' + LEAVING + ']');
+      const at = rowOf(document.activeElement);
+      const lost = document.activeElement === document.body || (at && !rows.taskOf(at));
       if (hadFocus && lost && next) check(next).focus({ preventScroll: true });
     });
     P.toast(toasts, 'Completed: ' + id.title, 'Undo', () => { void undo(li, id); });
@@ -221,14 +231,15 @@ export async function mount(backend: Backend): Promise<void> {
       rows.drop(li);
       const open = openTasks(saved);
       showTasks(open);
-      const back = rows.row(open.findIndex(task => key(task) === li.dataset.row));
+      const back = rows.row(open.findIndex(task => rowKey(task) === key(id)));
       if (back) P.enter($('.pt-task', back));
     } catch (e) { await failed(e); }
   }
 
   function startRename(li: HTMLElement) {
-    if (renaming || li.hasAttribute(LEAVING)) return;
-    const id = idOf(li.dataset.row!), label = $('.pt-task__title', li), at = rows.indexOf(li);
+    const id = rows.taskOf(li)?.id;
+    if (renaming || !id) return;
+    const at = rows.indexOf(li), label = $('.pt-task__title', li);
     const input = document.createElement('input');
     input.className = 'app__rename';
     input.value = id.title;
@@ -283,7 +294,7 @@ export async function mount(backend: Backend): Promise<void> {
 
   document.addEventListener('click', e => {
     if (!(e.target instanceof Element)) return;
-    const ticked = e.target.closest('.pt-check')?.closest<HTMLElement>('li[data-row]');
+    const ticked = rowOf(e.target, '.pt-check');
     if (ticked) { if (ticked !== renaming) complete(ticked); }
     else if (e.target.closest('[data-choose]')) void choose();
     else if (e.target.closest('[data-head] .pt-btn')) openComposer();
@@ -291,7 +302,7 @@ export async function mount(backend: Backend): Promise<void> {
   });
 
   document.addEventListener('dblclick', e => {
-    const li = e.target instanceof Element ? e.target.closest('.pt-task__title')?.closest<HTMLElement>('li[data-row]') : null;
+    const li = rowOf(e.target, '.pt-task__title');
     if (li) startRename(li);
   });
 
@@ -299,13 +310,13 @@ export async function mount(backend: Backend): Promise<void> {
     if (e.key === 'Escape' && composing) { e.preventDefault(); closeComposer(); return; }
     if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey || text === null || composing) return;
     if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openComposer(); return; }
-    const focused = e.target instanceof Element ? e.target.closest('.pt-check')?.closest<HTMLElement>('li[data-row]') : null;
+    const focused = rowOf(e.target, '.pt-check');
     if (e.key === 'Enter' && focused) { e.preventDefault(); startRename(focused); return; }
     const down = e.key === 'j' || e.key === 'ArrowDown', up = e.key === 'k' || e.key === 'ArrowUp';
     const count = rows.count();
     if (!(down || up) || !count) return;
     e.preventDefault();
-    const current = document.activeElement?.closest('li[data-row]');
+    const current = rowOf(document.activeElement);
     const at = current ? rows.indexOf(current) : -1;
     const next = rows.reveal(down ? Math.min(at + 1, count - 1) : Math.max(at - 1, 0));
     if (next) check(next).focus();

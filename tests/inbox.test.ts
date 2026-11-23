@@ -15,6 +15,7 @@ const PROJECT_FILE = [
   '- [ ] Order floor tiles due:2026-11-28 #call', '  - [ ] Measure the hallway', '- [x] Call the tiler', '* [ ] Star bullet', '',
   '## Later', '- [ ] Paint the ceiling', '',
 ].join('\n');
+const BOM_FRONT_MATTER = '﻿---\narea: Home\n- [ ] in the front matter\n---\n- [ ] Shown\n';
 
 test('a file comes back byte for byte after parse and serialize, whatever is in it', () => {
   const files = {
@@ -42,6 +43,7 @@ test('lines inside the front matter at the top of a file are never tasks', () =>
   assert.deepEqual(titles(PROJECT_FILE), ['. Order floor tiles due:2026-11-28 #call', 'x Call the tiler', '. Paint the ceiling']);
   assert.deepEqual(titles('---\n- [ ] Buy milk\n- [ ] Call the tiler\n'), ['. Buy milk', '. Call the tiler'], 'a first line of --- with no closing --- is a rule, not front matter');
   assert.deepEqual(titles('# Inbox\n---\n- [ ] after a rule, not front matter\n'), ['. after a rule, not front matter']);
+  assert.deepEqual(titles(BOM_FRONT_MATTER), ['. Shown'], 'a byte order mark before the first --- still opens front matter');
 });
 
 test('lines inside a fenced code block or an HTML comment are never tasks, and cannot be ticked', () => {
@@ -87,7 +89,7 @@ test('ticking, renaming or adding a task never changes which lines are tasks, so
 });
 
 test('ticking a task changes one character of the file and nothing else', () => {
-  for (const text of [PROJECT_FILE, PROJECT_FILE.replaceAll('\n', '\r\n'), '﻿- [ ] Order floor tiles due:2026-11-28 #call']) {
+  for (const text of [PROJECT_FILE, PROJECT_FILE.replaceAll('\n', '\r\n'), '﻿- [ ] Order floor tiles due:2026-11-28 #call', BOM_FRONT_MATTER]) {
     const doc = parse(text);
     const [first] = tasks(doc);
     assert.ok(first, 'precondition: the fixture has a task');

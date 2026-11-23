@@ -68,14 +68,19 @@ function mayOpenBlock(text: string): boolean {
   return c === 96 || c === 126 || c === 60;   // ` ~ <
 }
 
+/** Line `i`'s text without the byte order mark the first line may start with. */
+function textAt(doc: Doc, i: number): string {
+  const text = doc[i]!.text;
+  return i === 0 && text.startsWith(BOM) ? text.slice(1) : text;
+}
+
 /** A task and where it sits: its line, and the position in that line of the character between the brackets. */
 interface Found extends Task { readonly line: number; readonly mark: number }
 
 /** The line that closes the front matter, or -1 when the file has none. Front matter is a first line of `---` up to the
     next line of `---`. A first `---` that is never closed is a horizontal rule, and the lines after it are read as usual. */
 function frontMatterEnd(doc: Doc): number {
-  const first = doc[0]?.text;
-  if (first === undefined || (first.startsWith(BOM) ? first.slice(1) : first).trimEnd() !== FENCE) return -1;
+  if (!doc.length || textAt(doc, 0).trimEnd() !== FENCE) return -1;
   return doc.findIndex((line, i) => i > 0 && line.text.trimEnd() === FENCE);
 }
 
@@ -84,10 +89,8 @@ function frontMatterEnd(doc: Doc): number {
 function eachTask(doc: Doc, visit: (line: number, mark: number, done: boolean, title: string) => boolean): void {
   const frontMatter = frontMatterEnd(doc);
   for (let i = 0; i < doc.length; i++) {
-    const raw = doc[i]!.text;
-    const skip = i === 0 && raw.startsWith(BOM) ? 1 : 0;
-    const text = skip ? raw.slice(skip) : raw;
     if (i <= frontMatter) continue;
+    const text = textAt(doc, i), skip = doc[i]!.text.length - text.length;
     const end = blockEnd(doc, i, text);
     if (end !== -1) { i = end; continue; }
     const match = text.charCodeAt(0) === 45 ? TASK.exec(text) : null;   // "-": every task line starts with it
@@ -123,7 +126,6 @@ function locate(doc: Doc, id: TaskId): Found {
   return task;
 }
 
-/** The file with one line's text replaced. */
 function withLine(doc: Doc, at: number, text: string): Doc {
   const next = doc.slice();
   next[at] = { text, ending: doc[at]!.ending };
