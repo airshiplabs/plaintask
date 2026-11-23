@@ -28,6 +28,16 @@ The asset downloaded from the published release has the SHA-256 above and a vali
 | --- | --- | --- |
 {{checks}}
 
+## QA
+
+| Field | Value |
+| --- | --- |
+| Verdict | {{qaVerdict}} |
+| Recorded | {{qaRecordedAt}} |
+| Issues filed (not blockers) | {{qaIssues}} |
+
+The rows QA ran, and the rows it did not cover, are in `qa-report.md` next to this report.
+
 ## Not covered by this report
 
 Download the DMG in a browser on a Mac that has never run Plaintask, open it, drag the app to Applications, and launch it with the network off. That is the only test of the quarantine path a new user takes.

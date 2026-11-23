@@ -1,6 +1,6 @@
 ---
 name: release
-description: Release a new version of the Plaintask macOS desktop app from start to finish - changelog, version bump, release pull request, signed and notarized DMG, signed git tag, and published GitHub release with the DMG attached. Use this skill whenever the user asks to release, ship, cut, tag, or publish a Plaintask version, to build the DMG for distribution, or to check on, resume, or recover a release in progress. Not for a development build of the app (`pnpm --filter @plaintask/desktop app`).
+description: Release a new version of the Plaintask macOS desktop app from start to finish - changelog, version bump, release pull request, signed and notarized DMG, a QA run of the core user flows, signed git tag, and published GitHub release with the DMG attached. Use this skill whenever the user asks to release, ship, cut, tag, or publish a Plaintask version, to build the DMG for distribution, or to check on, resume, or recover a release in progress. Not for a development build of the app (`pnpm --filter @plaintask/desktop app`).
 ---
 
 # Release
@@ -19,7 +19,7 @@ The changelog is `apps/desktop/CHANGELOG.md`. Its format, its scripts, and that 
 
 ## What you must not do
 
-- Do not run `cut`, `pr`, `build`, `verify`, `stage`, or `publish` yourself. Each belongs to a subagent.
+- Do not run `cut`, `pr`, `build`, `verify`, `qa`, `stage`, or `publish` yourself. Each belongs to a subagent.
 - Do not edit `apps/desktop/CHANGELOG.md` or a version manifest, and do not run the `keep-a-changelog` scripts `add.mjs` or `release.mjs` during a release. `cut` adds the entries and cuts the release on the release branch.
 - Do not treat a subagent's reply as proof. After each one, run `status` and go on only when the phase advanced.
 - Do not pass either stop without the person's own answer in this conversation. Approval of one release, or of stop 1, is not approval of stop 2.
@@ -37,7 +37,7 @@ Pass `--version` only when the person named one. Stdout:
 | Field | Use |
 | --- | --- |
 | `version` | The release in flight, or the one the `[Unreleased]` entries call for. `null` with `next: draft-changelog`: no version is known until the entries are drafted. `null` with `next: none`: there is nothing to release; say so and stop. |
-| `phase` | One of `plan`, `pr-open`, `pr-merged`, `built`, `verified`, `staged`, `published`. |
+| `phase` | One of `plan`, `pr-open`, `pr-merged`, `built`, `verified`, `qa-passed`, `staged`, `published`. |
 | `next` | The task that moves the release forward. Go to its row in section 3. |
 | `releaseSha` | The commit to build, once the release pull request is merged. Before a tag exists, a commit on `main` after the build makes this the new `origin/main` commit, with `next: build-artifact`. |
 | `problems` | Each one needs an answer before you go on. `references/recovery.md` has the fix. |
@@ -69,6 +69,7 @@ Start at the row `status` named in `next`. One subagent per row, one at a time.
 | `land-release-pr` | `land-release-pr.md` | `version`, `entriesFile` | Only after stop 1 |
 | `build-artifact` | `build-artifact.md` | `version`, `sha` = `releaseSha` | About 10 to 25 minutes |
 | `verify-artifact` | `verify-artifact.md` | `version` | |
+| `qa-release` | `qa-release.md` | `version`, `sha` = `releaseSha` | About 30 minutes. The subagent asks the person once for screen control. See "QA verdict" |
 | `stage-release` | `stage-release.md` | `version` | Then stop 2 |
 | `publish-release` | `publish-release.md` | `version` | Only after stop 2 |
 | `done` | | | Section 5 |
@@ -108,6 +109,13 @@ Drafting and review change no phase: `status` stays at `plan` until the release 
 2. Dispatch `review-changelog.md` with that `version` and `entriesFile`. Pass nothing from the drafter's reply.
 3. Verdict `CHANGES`: dispatch `draft-changelog.md` again with the input `findings: <the reviewer's findings JSON>`, then review again. At most 2 rounds. Findings still open after round 2 go to the person at stop 1.
 
+### QA verdict
+
+`qa-release` tests the release commit, not the DMG, against `assets/qa-checklist.md`: the flows most people use, not every edge case. It files each problem it reproduces as a GitHub issue, and a blocker also gets the label `release-blocker`. Its brief defines a blocker.
+
+- `status` reports `qa-passed`: the verdict is `ready`. Go on to `stage-release`.
+- `status` reports `verified` with a `qa.json records release blockers` problem: stop. Show the person each blocker issue and its link. A blocker is fixed forward with a normal pull request; then `status` names `build-artifact`, and the release runs build, verify and QA again with the same version.
+
 ### Stop 1: version and changelog
 
 Show the person:
@@ -132,6 +140,7 @@ After `stage-release`, show the person:
 1. The draft release URL, the tag, and the commit.
 2. The asset name, size, and SHA-256.
 3. How many `verify` checks passed, by count, and every notary log issue the verifier reported.
+4. The QA verdict, each checklist row marked `not covered` and why, and each issue QA filed, with its link. These are not blockers; the person decides whether any of them should hold the release.
 
 Ask whether to publish. A published release cannot be withdrawn: the tag and the asset stay as they are, and a fix ships as the next version.
 
@@ -152,7 +161,7 @@ A build that fails after the release pull request merged is fixed forward with a
 When `status` reports `published`, show the person:
 
 1. The release URL.
-2. The contents of `dist/release/<version>/release-report.md`.
+2. The contents of `dist/release/<version>/release-report.md`. `qa-report.md` sits next to it.
 3. Its last section: the one check no script ran, which is theirs to do.
 
 ## Rehearsal
@@ -173,4 +182,4 @@ This writes an ad-hoc-signed DMG to `dist/release/<V>-adhoc/`. It is never part 
 | `references/setup.md` | Preflight exits 2, or signing or notarization credentials fail |
 | `references/recovery.md` | A task fails, `status` lists a problem, or the person wants to undo a step |
 | `references/changelog.md` | The person asks where entries come from, how the version is picked, or why `cut` rejected the entries file |
-| `assets/` | Templates the scripts fill: release notes, pull request body, report, and the subagent briefs |
+| `assets/` | Templates the scripts fill: release notes, pull request body, report, the QA checklist and report, and the subagent briefs |

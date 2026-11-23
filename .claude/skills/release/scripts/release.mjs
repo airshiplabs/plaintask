@@ -12,13 +12,15 @@
 //                                                                builds at SHA; signs, packages, notarizes, staples the DMG
 //   node release.mjs build     --version V --adhoc               rehearsal: ad-hoc build of the current checkout, no notarization
 //   node release.mjs verify    --version V [--adhoc]             checks the built DMG; writes verify.json
+//   node release.mjs qa        --version V --verdict ready|blocked --report FILE [--blockers N,N] [--issues N,N]
+//                                                                records the QA run of the verified build; writes qa.json
 //   node release.mjs stage     --version V [--dry-run]           signed tag, tag push, draft GitHub release with the assets
 //   node release.mjs publish   --version V [--dry-run]           publishes the draft, downloads the asset, compares checksums
 // Output: one JSON object on stdout, or nothing. Diagnostics and the output of wrapped tools go to stderr.
 // --dry-run prints "would run: <command>" for each command that changes something, and runs the read-only ones.
 // The changelog format, its scripts, and the desktop-v<V> tag name belong to .claude/skills/keep-a-changelog/.
-// Files: dist/release/entries.json holds the changelog entries a release adds. dist/release/<V>/ holds the DMG, SHA256SUMS.txt, build.json, verify.json, app-notary-log.json, notary-log.json,
-// release-notes.md and release-report.md. An --adhoc rehearsal uses dist/release/<V>-adhoc/ and can never be staged.
+// Files: dist/release/entries.json holds the changelog entries a release adds. dist/release/<V>/ holds the DMG, SHA256SUMS.txt, build.json, verify.json, qa.json, qa-report.md,
+// app-notary-log.json, notary-log.json, release-notes.md and release-report.md. An --adhoc rehearsal uses dist/release/<V>-adhoc/ and can never be staged.
 // Exit 0: done. Exit 1: a check failed; do not go on. Exit 2: usage error or a missing prerequisite.
 // Exit 3: outside work (CI, notarization) is still running; run the same command again.
 import { spawn, spawnSync } from 'node:child_process';
@@ -78,7 +80,7 @@ const SEE = Object.freeze({
   skill: '.claude/skills/release/SKILL.md',
 });
 const EXIT = Object.freeze({ failed: 1, usage: 2, pending: 3 });
-const USAGE = 'usage: release.mjs <status|preflight|plan|cut|check|pr|build|verify|stage|publish> [--version V] [--entries FILE] [--sha SHA] [--date YYYY-MM-DD] [--identity NAME|HASH] [--adhoc] [--dry-run]';
+const USAGE = 'usage: release.mjs <status|preflight|plan|cut|check|pr|build|verify|qa|stage|publish> [--version V] [--entries FILE] [--sha SHA] [--date YYYY-MM-DD] [--identity NAME|HASH] [--verdict ready|blocked] [--report FILE] [--blockers N,N] [--issues N,N] [--adhoc] [--dry-run]';
 
 /** A stop with an exit code. `see` names the skill file that explains what to do next. */
 class Stop extends Error {
@@ -369,12 +371,13 @@ function status({ version: explicit }) {
   const dir = outDir(version);
   const build = readJson(join(dir, 'build.json'));
   const verify = readJson(join(dir, 'verify.json'));
+  const qa = readJson(join(dir, 'qa.json'));
   const pr = findPr(version);
   const release = viewRelease(version);
   const tagSha = remoteTagSha(tag);
   const main = mainSha();
   const mainProblems = releaseProblems(version, (path) => showAt(BASE, path));
-  const phase = derivePhase({ release, build, verify, mainHasRelease: mainProblems.length === 0, pr });
+  const phase = derivePhase({ release, build, verify, qa, mainHasRelease: mainProblems.length === 0, pr });
 
   const problems = [];
   if (build && !build.sha256) problems.push(`notarization ${build.notary?.id ?? build.appNotary?.id} was submitted and has not finished: run build again with --sha ${build.sha}`);
@@ -391,12 +394,16 @@ function status({ version: explicit }) {
       ? `verify.json records a failed verify (${failed}): fix the cause and build again`
       : `verify.json records a failed verify (${failed}) of the build ${tag} holds: fix the cause and verify again`);
   }
+  const qaBlocked = qa !== null && !qa.ok && qa.sha256 === build?.sha256;
+  if (qaBlocked && phase === 'verified') {
+    problems.push(`qa.json records release blockers (${qa.blockers.map((n) => `#${n}`).join(', ')}): fix forward with a pull request, then build again`);
+  }
   if (mainAhead) problems.push(`${BASE} is at ${main}, ahead of the build of ${build.sha}: build again with --sha ${main}`);
 
   print({
     version,
     phase,
-    next: nextTask(phase, { verifyFailed, replaceable, mainAhead }),
+    next: nextTask(phase, { verifyFailed, qaBlocked, replaceable, mainAhead }),
     releaseSha: (mainAhead ? null : build?.sha) ?? (mainProblems.length === 0 ? main : null),
     facts: {
       main,
@@ -405,6 +412,7 @@ function status({ version: explicit }) {
       pr: pr && { number: pr.number, state: pr.state, url: pr.url, mergeSha: pr.mergeCommit?.oid ?? null },
       build: build && { sha: build.sha, signature: build.signature, sha256: build.sha256 ?? null, notary: build.notary ?? null },
       verify: verify && { ok: verify.ok, sha256: verify.sha256 },
+      qa: qa && { verdict: qa.verdict, sha256: qa.sha256, blockers: qa.blockers, issues: qa.issues },
       remoteTagSha: tagSha,
       release: release && { isDraft: release.isDraft, url: release.url, assets: release.assets.map(({ name }) => name) },
     },
@@ -751,6 +759,7 @@ function build(options) {
     if (!resumeApp) {
       record = buildApp(options, dir);
       rmSync(join(dir, 'verify.json'), { force: true });
+      rmSync(join(dir, 'qa.json'), { force: true });
       writeJson(buildFile, record);
     }
     record = packageAndSubmit(record, dir, dmg, buildFile, adhoc);
@@ -884,6 +893,44 @@ function requireVerifiedBuild(version) {
   return { dir, record, verdict, dmg, checksums: join(dir, CHECKSUMS_NAME) };
 }
 
+/** The passing QA record of the verified build, or a stop that says what is missing. */
+function requireQaPassed(dir, record) {
+  const qa = readJson(join(dir, 'qa.json'));
+  if (!qa || qa.sha256 !== record.sha256) fail(`the build in ${dir} has no qa.json for sha256 ${record.sha256}: run the qa-release task`);
+  if (!qa.ok) fail(`qa.json records release blockers (${qa.blockers.map((n) => `#${n}`).join(', ')}): fix forward, then build again`);
+  return qa;
+}
+
+const BLOCKER_LABEL = 'release-blocker';
+const ISSUE_LIST = /^[1-9]\d*(,[1-9]\d*)*$/;
+const issueNumbers = (text) => (text === undefined ? [] : text.split(',').map(Number));
+
+function qa({ version, verdict, report, blockers, issues }) {
+  if (!['ready', 'blocked'].includes(verdict)) missing(`--verdict must be ready or blocked, not ${verdict}`, SEE.skill);
+  for (const [flag, text] of [['--blockers', blockers], ['--issues', issues]]) {
+    if (text !== undefined && !ISSUE_LIST.test(text)) missing(`${flag} must list issue numbers as N,N, not ${text}`, SEE.skill);
+  }
+  const blockerList = issueNumbers(blockers);
+  if (verdict === 'blocked' && blockerList.length === 0) missing('a blocked verdict needs --blockers with the blocker issue numbers', SEE.skill);
+  if (verdict === 'ready' && blockerList.length > 0) missing('a ready verdict cannot list --blockers', SEE.skill);
+  if (!existsSync(report)) missing(`no QA report at ${report}`, SEE.skill);
+  const { dir, record } = requireVerifiedBuild(version);
+  if (viewRelease(version)) fail(`a GitHub release for ${tagFor(version)} exists; QA runs before stage`);
+  for (const number of [...blockerList, ...issueNumbers(issues)]) {
+    const issue = ghJson(['issue', 'view', String(number), '--repo', REPO, '--json', 'number,state,labels']);
+    const blocker = blockerList.includes(number);
+    if (blocker && issue.state !== 'OPEN') fail(`blocker #${number} is ${issue.state}, not OPEN`);
+    if (blocker && !issue.labels.some(({ name }) => name === BLOCKER_LABEL)) fail(`blocker #${number} has no ${BLOCKER_LABEL} label`);
+  }
+  copyFileSync(report, join(dir, 'qa-report.md'));
+  const result = {
+    version, ok: verdict === 'ready', verdict, sha: record.sha, sha256: record.sha256,
+    blockers: blockerList, issues: issueNumbers(issues), report: 'qa-report.md', recordedAt: new Date().toISOString(),
+  };
+  writeJson(join(dir, 'qa.json'), result);
+  print(result);
+}
+
 function requireAssets(release, record) {
   const names = release.assets.map(({ name }) => name).sort();
   const expected = [record.dmg, CHECKSUMS_NAME].sort();
@@ -894,6 +941,7 @@ function requireAssets(release, record) {
 
 function stage({ version }) {
   const { dir, record, dmg, checksums } = requireVerifiedBuild(version);
+  requireQaPassed(dir, record);
   const tag = tagFor(version);
   const { sha } = record;
   fetchMain();
@@ -932,6 +980,7 @@ function stage({ version }) {
 
 function publish({ version }) {
   const { dir, record, verdict } = requireVerifiedBuild(version);
+  const qaRecord = requireQaPassed(dir, record);
   const tag = tagFor(version);
   let release = viewRelease(version);
   if (!release) fail(`no GitHub release for ${tag}: run stage first`, SEE.skill);
@@ -961,6 +1010,8 @@ function publish({ version }) {
     appNotaryId: appNotaryLog?.jobId ?? 'none', appNotaryStatus: appNotaryLog?.status ?? 'app-notary-log.json is missing',
     notaryId: record.notary.id, notaryStatus: record.notary.status,
     checks: verdict.checks.map((item) => `| ${item.id} | ${item.ok ? 'pass' : 'FAIL'} | ${item.detail} |`).join('\n'),
+    qaVerdict: qaRecord.verdict, qaRecordedAt: qaRecord.recordedAt,
+    qaIssues: qaRecord.issues.length > 0 ? qaRecord.issues.map((n) => `#${n}`).join(', ') : 'none',
   }));
   print({ url: release.url, publishedAt: release.publishedAt, sha256: record.sha256, report });
 }
@@ -976,10 +1027,14 @@ const COMMANDS = Object.freeze({
   pr: { run: pr, required: ['version', 'entries'], allowed: ['dryRun'] },
   build: { run: build, required: ['version'], allowed: ['sha', 'adhoc', 'identity'] },
   verify: { run: verify, required: ['version'], allowed: ['adhoc'] },
+  qa: { run: qa, required: ['version', 'verdict', 'report'], allowed: ['blockers', 'issues'] },
   stage: { run: stage, required: ['version'], allowed: ['dryRun'] },
   publish: { run: publish, required: ['version'], allowed: ['dryRun'] },
 });
-const VALUE_FLAGS = Object.freeze({ '--version': 'version', '--entries': 'entries', '--sha': 'sha', '--date': 'date', '--identity': 'identity' });
+const VALUE_FLAGS = Object.freeze({
+  '--version': 'version', '--entries': 'entries', '--sha': 'sha', '--date': 'date', '--identity': 'identity',
+  '--verdict': 'verdict', '--report': 'report', '--blockers': 'blockers', '--issues': 'issues',
+});
 const SWITCHES = Object.freeze({ '--adhoc': 'adhoc', '--dry-run': 'dryRun' });
 
 /** Returns { command, options }, or null on a usage error. A value flag takes "--flag value" or "--flag=value". */

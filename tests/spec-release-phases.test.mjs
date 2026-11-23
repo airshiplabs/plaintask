@@ -7,17 +7,20 @@ import { canon, check } from '../specs/tlc.mjs';
 
 /** The facts `release.mjs status` would gather in a spec state, in the shapes it reads them. */
 function factsOf(state) {
-  const { pr, main, build, verify, tag, release } = state;
+  const { pr, main, build, verify, qa, tag, release } = state;
   return {
     phase: {
       release: release === 'none' ? null : { isDraft: release === 'draft' },
       build: build.exists ? (build.sha256 > 0 ? { sha256: `dmg-${build.sha256}` } : { notary: { id: 'submitted' } }) : null,
       verify: verify.exists ? { ok: verify.ok, sha256: `dmg-${verify.sha256}` } : null,
+      qa: qa.exists ? { ok: qa.ok, sha256: `dmg-${qa.sha256}` } : null,
       mainHasRelease: main,
       pr: pr === 'none' ? null : { state: pr },
     },
     // As status() works them out. The spec has no commits after the release, so main is never ahead of the build.
-    next: { verifyFailed: verify.exists && !verify.ok, replaceable: !tag && release === 'none', mainAhead: false },
+    next: {
+      verifyFailed: verify.exists && !verify.ok, qaBlocked: qa.exists && !qa.ok && qa.sha256 === build.sha256, replaceable: !tag && release === 'none', mainAhead: false,
+    },
   };
 }
 

@@ -34,6 +34,10 @@
 | `build` | `a GitHub release for desktop-v<V> exists` | A rebuild makes a different DMG than the one staged. To rebuild, undo the stage first (below). |
 | `verify` | Any check fails | Do not stage. The failed check ids are in `verify.json`. Fix the cause and build again. Until then `status` lists the failed verify under `problems` and names `build-artifact` as `next`. |
 | `verify` | Exit 1, yet every check in its JSON is `ok` and `status` reports `verified` | The script failed after the checks ran; the DMG passed. Do not rebuild. Fix the script forward (see "Fix forward"), and stage only with the person's approval. |
+| `qa` | `qa.json records release blockers` | QA filed each blocker with the label `release-blocker`. Fix each forward (see "Fix forward"), closing its issue from the fix pull request. Then build, verify and QA again with the same version. A new build removes `qa.json`. |
+| `qa` | The person declined screen control | The `window` rows are `not covered` in `qa-report.md`. The verdict stands on the `page` rows; the person decides at stop 2 whether to publish without the window rows or to run `qa-release` again. |
+| `qa` | `a GitHub release for desktop-v<V> exists; QA runs before stage` | The release was staged before QA ran. Undo the stage (below), run `qa-release`, then `stage` again. |
+| `stage` or `publish` | `has no qa.json for sha256 ...` | QA has not run on this build, or ran on an earlier one. Run the `qa-release` task. |
 | `stage` | Exit 3, `test` check not finished on the release commit | Run `stage` again when the check on `main` finishes. |
 | `stage` | `no passing verify.json`, or the DMG `changed after it was built and verified` | Run `verify` again. If the DMG changed, remove `dist/release/<V>/` and build again. |
 | `stage` | Tag pushed, `gh release create` failed | Run `stage` again. It keeps the tag when origin's tag points at the release commit. |
@@ -60,7 +64,7 @@ git push origin :refs/tags/desktop-v<V>
 git tag -d desktop-v<V>
 ```
 
-Then run `build` and `verify` again if the artifact is to change, and `stage` again.
+Then run `build`, `verify` and `qa-release` again if the artifact is to change, and `stage` again.
 
 ## After publishing
 

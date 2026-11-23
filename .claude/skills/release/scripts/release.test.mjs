@@ -119,8 +119,8 @@ function landRelease(repo) {
   return repo.git('rev-parse', 'HEAD');
 }
 
-/** Writes dist/release/<V>/ as a finished build of `sha` would leave it. `verified` adds a passing verify.json. */
-function fakeBuild(repo, sha, { signature = 'developer-id', verified = true, dirty = false } = {}) {
+/** Writes dist/release/<V>/ as a finished build of `sha` would leave it. `verified` adds a passing verify.json, `qa` a passing qa.json. */
+function fakeBuild(repo, sha, { signature = 'developer-id', verified = true, dirty = false, qa = verified } = {}) {
   const out = `dist/release/${VERSION}`;
   const bytes = 'not a real disk image';
   const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -131,6 +131,8 @@ function fakeBuild(repo, sha, { signature = 'developer-id', verified = true, dir
     dmg: DMG, notary: { id: 'n-1', status: 'Accepted' }, bytes: bytes.length, sha256,
   }));
   if (verified) repo.write(`${out}/verify.json`, JSON.stringify({ version: VERSION, ok: true, sha256, checks: [{ id: 'dmg-sha256', ok: true, detail: sha256 }] }));
+  if (qa) repo.write(`${out}/qa.json`, JSON.stringify({ version: VERSION, ok: true, verdict: 'ready', sha, sha256, blockers: [], issues: [7], recordedAt: '2026-11-22T09:00:00Z' }));
+  else rmSync(join(repo.work, `${out}/qa.json`), { force: true });
   return { sha256, bytes: bytes.length };
 }
 
@@ -266,8 +268,10 @@ test('status reports each phase from the facts it finds', (t) => {
 
   const { bytes } = fakeBuild(repo, sha, { verified: false });
   assert.deepEqual(phase(), [VERSION, 'built', 'verify-artifact']);
+  fakeBuild(repo, sha, { qa: false });
+  assert.deepEqual(phase(), [VERSION, 'verified', 'qa-release']);
   fakeBuild(repo, sha);
-  assert.deepEqual(phase(), [VERSION, 'verified', 'stage-release']);
+  assert.deepEqual(phase(), [VERSION, 'qa-passed', 'stage-release']);
   assert.deepEqual(phase({ 'gh release view': release(true, bytes) }), [VERSION, 'staged', 'publish-release']);
   assert.deepEqual(phase({ 'gh release view': release(false, bytes) }), [VERSION, 'published', 'done']);
 
@@ -305,7 +309,7 @@ test('status names build-artifact and the new commit when main is ahead of the b
 
   const ahead = repo.cli(['status']);
   assert.equal(ahead.status, 0, ahead.stderr);
-  assert.deepEqual([ahead.json.phase, ahead.json.next, ahead.json.releaseSha], ['verified', 'build-artifact', main]);
+  assert.deepEqual([ahead.json.phase, ahead.json.next, ahead.json.releaseSha], ['qa-passed', 'build-artifact', main]);
   assert.equal(ahead.json.problems.length, 1);
   assert.match(ahead.json.problems[0], new RegExp(`origin/main is at ${main}, ahead of the build of ${sha}: build again with --sha ${main}`));
 
@@ -492,4 +496,60 @@ test('publish needs a staged release whose tag and assets match the verified bui
   assert.equal(dry.status, 0, dry.stderr);
   assert.match(dry.stderr, /would run: gh release edit desktop-v0\.1\.0 --draft=false/);
   assert.ok(!dry.log.some((line) => line.startsWith('gh release edit') || line.startsWith('gh release download')));
+});
+
+test('qa records the verdict of the verified build, and refuses a verdict its issue lists contradict', (t) => {
+  const repo = makeRepo(t);
+  const sha = landRelease(repo);
+  const report = join(repo.dir, 'qa-report.md');
+  writeFileSync(report, '# QA\n');
+  const qa = (...args) => repo.cli(['qa', '--version', VERSION, ...args]);
+
+  assert.equal(qa('--verdict', 'ready').status, 2, 'qa needs --report');
+  assert.equal(qa('--verdict', 'ready', '--report', report).status, 2, 'qa needs a finished build');
+  fakeBuild(repo, sha, { qa: false });
+  assert.match(qa('--verdict', 'maybe', '--report', report).stderr, /--verdict must be ready or blocked/);
+  assert.match(qa('--verdict', 'blocked', '--report', report).stderr, /a blocked verdict needs --blockers/);
+  assert.match(qa('--verdict', 'ready', '--report', report, '--blockers', '3').stderr, /a ready verdict cannot list --blockers/);
+  assert.match(qa('--verdict', 'ready', '--report', report, '--issues', '#3').stderr, /--issues must list issue numbers/);
+  assert.match(qa('--verdict', 'ready', '--report', join(repo.dir, 'none.md')).stderr, /no QA report at/);
+
+  const issue = (state, labels) => ({ stdout: { number: 1, state, labels: labels.map((name) => ({ name })) } });
+  const found = { 'gh issue view': issue('OPEN', ['bug', 'release-blocker']) };
+  const blockedBy = (fixtures) => repo.cli(['qa', '--version', VERSION, '--verdict', 'blocked', '--report', report, '--blockers', '12,13', '--issues', '14'], fixtures);
+  assert.match(blockedBy({ 'gh issue view': issue('CLOSED', ['bug', 'release-blocker']) }).stderr, /blocker #12 is CLOSED, not OPEN/);
+  assert.match(blockedBy({ 'gh issue view': issue('OPEN', ['bug']) }).stderr, /blocker #12 has no release-blocker label/);
+  assert.equal(blockedBy({ 'gh issue view': { status: 1, stderr: 'issue not found\n' } }).status, 1, 'an issue that does not exist is refused');
+  const blocked = blockedBy(found);
+  assert.equal(blocked.status, 0, blocked.stderr);
+  assert.deepEqual([blocked.json.ok, blocked.json.blockers, blocked.json.issues, blocked.json.sha], [false, [12, 13], [14], sha]);
+  assert.equal(readFileSync(join(repo.work, `dist/release/${VERSION}/qa-report.md`), 'utf8'), '# QA\n');
+  const status = repo.cli(['status']);
+  assert.deepEqual([status.json.phase, status.json.next], ['verified', 'build-artifact']);
+  assert.match(status.json.problems.join('\n'), /qa\.json records release blockers \(#12, #13\): fix forward/);
+  const refused = repo.cli(['stage', '--version', VERSION]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /qa\.json records release blockers \(#12, #13\)/);
+  assert.ok(!refused.log.some((line) => line.startsWith('gh release create')));
+
+  const ready = repo.cli(['qa', '--version', VERSION, '--verdict', 'ready', '--report', report, '--issues', '14'], { 'gh issue view': issue('OPEN', ['bug']) });
+  assert.equal(ready.status, 0, ready.stderr);
+  assert.deepEqual([repo.cli(['status']).json.phase, repo.cli(['status']).json.next], ['qa-passed', 'stage-release']);
+
+  const staged = repo.cli(['qa', '--version', VERSION, '--verdict', 'ready', '--report', report], { 'gh release view': release(true, 1) });
+  assert.equal(staged.status, 1);
+  assert.match(staged.stderr, /a GitHub release for desktop-v0\.1\.0 exists; QA runs before stage/);
+});
+
+test('stage and publish refuse a verified build with no qa.json, or a qa.json of another build', (t) => {
+  const repo = makeRepo(t);
+  const sha = landRelease(repo);
+  fakeBuild(repo, sha, { qa: false });
+  for (const command of ['stage', 'publish']) {
+    const result = repo.cli([command, '--version', VERSION]);
+    assert.equal(result.status, 1, command);
+    assert.match(result.stderr, /has no qa\.json for sha256 .*run the qa-release task/, command);
+  }
+  repo.write(`dist/release/${VERSION}/qa.json`, JSON.stringify({ ok: true, verdict: 'ready', sha256: 'other', blockers: [], issues: [] }));
+  assert.match(repo.cli(['stage', '--version', VERSION]).stderr, /has no qa\.json for sha256/);
 });

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  classifyCommit, compareVersions, derivePhase, latestVersionTag, nextVersion, parseVersion,
+  classifyCommit, compareVersions, derivePhase, latestVersionTag, nextTask, nextVersion, parseVersion,
   readManifestVersion, sectionFor, setManifestVersion,
 } from './plan.mjs';
 
@@ -122,8 +122,20 @@ test('derivePhase reports the most advanced state the facts prove', () => {
     [{ ...none, mainHasRelease: true, build: built, verify: { ok: false, sha256: 'abc' } }, 'built'],
     [{ ...none, mainHasRelease: true, build: built, verify: { ok: true, sha256: 'old' } }, 'built'],
     [{ ...none, mainHasRelease: true, build: built, verify: { ok: true, sha256: 'abc' } }, 'verified'],
+    [{ ...none, mainHasRelease: true, build: built, verify: { ok: true, sha256: 'abc' }, qa: { ok: false, sha256: 'abc' } }, 'verified'],
+    [{ ...none, mainHasRelease: true, build: built, verify: { ok: true, sha256: 'abc' }, qa: { ok: true, sha256: 'old' } }, 'verified'],
+    [{ ...none, mainHasRelease: true, build: built, verify: { ok: true, sha256: 'abc' }, qa: { ok: true, sha256: 'abc' } }, 'qa-passed'],
+    [{ ...none, mainHasRelease: true, build: built, verify: { ok: false, sha256: 'abc' }, qa: { ok: true, sha256: 'abc' } }, 'built'],
     [{ ...none, mainHasRelease: true, build: built, verify: { ok: true, sha256: 'abc' }, release: { isDraft: true } }, 'staged'],
     [{ ...none, release: { isDraft: false } }, 'published'],
   ];
   for (const [facts, phase] of rows) assert.equal(derivePhase(facts), phase, JSON.stringify(facts));
+});
+
+test('nextTask names QA after verify, stage after QA, and a new build after a QA blocker', () => {
+  const clear = { verifyFailed: false, qaBlocked: false, replaceable: true, mainAhead: false };
+  assert.equal(nextTask('verified', clear), 'qa-release');
+  assert.equal(nextTask('qa-passed', clear), 'stage-release');
+  assert.equal(nextTask('verified', { ...clear, qaBlocked: true }), 'build-artifact');
+  assert.equal(nextTask('verified', { ...clear, qaBlocked: true, replaceable: false }), 'qa-release');
 });

@@ -14,13 +14,14 @@ export const MANIFESTS = Object.freeze([
 export const CRATE_NAME = 'plaintask';
 
 /** Release phases in order. `status` reports one; NEXT_TASK names the brief that moves it forward (see nextTask()). */
-export const PHASES = Object.freeze(['plan', 'pr-open', 'pr-merged', 'built', 'verified', 'staged', 'published']);
+export const PHASES = Object.freeze(['plan', 'pr-open', 'pr-merged', 'built', 'verified', 'qa-passed', 'staged', 'published']);
 export const NEXT_TASK = Object.freeze({
   plan: 'draft-changelog',
   'pr-open': 'land-release-pr',
   'pr-merged': 'build-artifact',
   built: 'verify-artifact',
-  verified: 'stage-release',
+  verified: 'qa-release',
+  'qa-passed': 'stage-release',
   staged: 'publish-release',
   published: 'done',
 });
@@ -202,14 +203,15 @@ function sectionOf(lines, index) {
  *   release: { isDraft: boolean } | null,
  *   build: { sha256?: string } | null,
  *   verify: { ok: boolean, sha256: string } | null,
+ *   qa?: { ok: boolean, sha256: string } | null,
  *   mainHasRelease: boolean,
  *   pr: { state: string } | null,
  * }} facts
  */
-export function derivePhase({ release, build, verify, mainHasRelease, pr }) {
+export function derivePhase({ release, build, verify, qa = null, mainHasRelease, pr }) {
   if (release) return release.isDraft ? 'staged' : 'published';
   const built = Boolean(build?.sha256);
-  if (built && verify?.ok && verify.sha256 === build.sha256) return 'verified';
+  if (built && verify?.ok && verify.sha256 === build.sha256) return qa?.ok && qa.sha256 === build.sha256 ? 'qa-passed' : 'verified';
   if (built) return 'built';
   if (mainHasRelease) return 'pr-merged';
   if (pr?.state === 'OPEN') return 'pr-open';
@@ -217,15 +219,17 @@ export function derivePhase({ release, build, verify, mainHasRelease, pr }) {
 }
 
 /**
- * The brief `status` names next: the phase's, except after a failed verify of a release not yet published, or when
- * origin/main has moved past the build. A build that no tag or release holds yet can be replaced, so it is built
- * again; one they hold cannot, so it is verified again, as stage and publish refuse it until verify passes.
+ * The brief `status` names next: the phase's, except after a failed verify of a release not yet published, a QA run
+ * that found a blocker, or when origin/main has moved past the build. A build that no tag or release holds yet can be
+ * replaced, so it is built again; one they hold cannot, so it is verified or QA'd again, as stage and publish refuse
+ * it until both pass.
  * specs/ReleasePhases.tla model-checks this with derivePhase(); tests/spec-release-phases.test.mjs compares them.
  * @param {string} phase from derivePhase()
- * @param {{ verifyFailed: boolean, replaceable: boolean, mainAhead: boolean }} facts
+ * @param {{ verifyFailed: boolean, qaBlocked?: boolean, replaceable: boolean, mainAhead: boolean }} facts
  */
-export function nextTask(phase, { verifyFailed, replaceable, mainAhead }) {
+export function nextTask(phase, { verifyFailed, qaBlocked = false, replaceable, mainAhead }) {
   if (verifyFailed && phase !== 'published') return replaceable ? NEXT_TASK['pr-merged'] : NEXT_TASK.built;
+  if (qaBlocked && phase === 'verified') return replaceable ? NEXT_TASK['pr-merged'] : NEXT_TASK.verified;
   if (mainAhead && replaceable) return NEXT_TASK['pr-merged'];
   return NEXT_TASK[phase];
 }
