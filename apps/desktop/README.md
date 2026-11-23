@@ -40,6 +40,7 @@ Run from the repo root.
 | --- | --- |
 | `src/inbox.ts` | The task file rules as pure functions: parse, list tasks, tick, rename, append, serialize |
 | `src/app.ts` | The window: draws the list, the new-task form, ticking, Undo, renaming, keys. Reaches the outside only through its `Backend` |
+| `src/session.ts` | The window's session as a state machine: what the list area shows, the form, a rename. `specs/DesktopSession.tla` models it |
 | `src/rows.ts` | The list's rows, drawn only in and one view's height around the scroll view, so a 10,000-task Inbox draws ~50 rows |
 | `src/main.ts` | Mounts `app.ts` on the Rust commands and asks for the window |
 | `src/index.html`, `src/app.css` | Shell markup; the layout `bundle.css` leaves to the app |
@@ -49,7 +50,7 @@ Run from the repo root.
 | `src-tauri/src/inbox_file.rs` | Reads `Inbox.md`; replaces it through a temporary file and a rename that keeps its metadata |
 | `scripts/measure-launch.mjs` | Launch timing |
 
-Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the built page in headless Chrome, with the Rust commands replaced by a folder held in memory), and the `#[cfg(test)]` modules in `src-tauri/src/`.
+Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the built page in headless Chrome, with the Rust commands replaced by a folder held in memory), `tests/spec-desktop-session.test.mjs` (`session.ts` against its TLA+ spec, see `specs/README.md`; needs Java), and the `#[cfg(test)]` modules in `src-tauri/src/`.
 
 ## File rules
 

@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A task ticked while another is being renamed no longer shows as open again ([#85])
 - Ticking a task now also shows what another editor changed in the file ([#91])
 - Pressing N while a ticked task folds away keeps the keyboard in the new-task field ([#94])
+- A save that lands after a failed reread no longer draws the list over the reason ([#93])
+- A title being edited closes when a notice replaces the list, so later renames still work ([#93])
 
 ## [0.1.0] - 2026-11-22
 
@@ -58,4 +60,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#85]: https://github.com/airshiplabs/plaintask/pull/85
 [#88]: https://github.com/airshiplabs/plaintask/pull/88
 [#91]: https://github.com/airshiplabs/plaintask/pull/91
+[#93]: https://github.com/airshiplabs/plaintask/pull/93
 [#94]: https://github.com/airshiplabs/plaintask/pull/94

@@ -1,6 +1,7 @@
 // It knows nothing of Tauri: everything outside the page comes through the Backend it is mounted with.
 import { append, cleanTitle, NO_TITLE, parse, rename, serialize, tasks, toggle, type Doc, type Task, type TaskId } from './inbox.ts';
 import { rowList } from './rows.ts';
+import { can, initial, step, type SessionEvent } from './session.ts';
 
 export interface Backend {
   /** The task folder's path, or null when the person has not chosen one. */
@@ -61,13 +62,15 @@ export async function mount(backend: Backend): Promise<void> {
 
   const composer = $('[data-composer]');
   $('div', composer).innerHTML = COMPOSER;
-  const form = $<HTMLFormElement>('form', composer), field = $<HTMLInputElement>('input', form), error = $('.pt-error', form);
+  const form = $<HTMLFormElement>('form', composer), input = $<HTMLInputElement>('input', form), error = $('.pt-error', form);
 
   let text: string | null = null;   // Inbox.md as last read or written; null while no Inbox is shown
-  let composing = false;
-  let saving = false;               // an add is on its way to the file
-  let renaming: HTMLElement | null = null;
-  let chosen = false;               // a folder is chosen, so Inbox.md is read again when the window regains focus, even after it failed to read
+  let s = initial;                  // the session: what shows, the form, a rename (session.ts)
+  /** Moves the session on by one event, and returns it as it was. */
+  const go = (event: SessionEvent) => { const was = s; s = step(s, event); return was; };
+  let renamed: HTMLElement | null = null;   // the row whose title is a field or is saving, while s.rename is not 'none'
+  /** The title field open now: drop() takes it away with no save, keep() puts the old title back. */
+  let field: { drop(): void; keep(): void } | null = null;
 
   function showHeader(canAdd: boolean) {
     head.innerHTML = P.ViewHeader({ title: 'Inbox', ...(canAdd && { action: { label: 'New task', variant: 'primary', icon: 'plus', kbd: 'N' } }) });
@@ -85,13 +88,16 @@ export async function mount(backend: Backend): Promise<void> {
   function showTasks(open: Task[], animate = true) {
     rows.show(open);
     showCount(open.length, animate);
+    if (s.rename === 'editing' && !renamed?.isConnected) field?.keep();   // drawn again without the row being renamed
   }
   let noticeShown: string | null = null;
-  function showNotice(html: string) {
+  function showNotice(event: 'folderNone' | 'folderFailed' | 'gone' | 'unreadable', html: string) {
+    if (s.rename === 'editing') field?.drop();   // the field goes with the rows
+    const was = go(event);
     if (text === null && html === noticeShown) return;   // the same notice again, as after a reread on focus: keep it, and the keyboard on its button
     noticeShown = html;
     text = null;
-    closeComposer(false);
+    if (was.composer === 'open') hideComposer(false);
     showHeader(false);
     rows.clear(html);
     showCount(0, false);
@@ -108,18 +114,19 @@ export async function mount(backend: Backend): Promise<void> {
   /** The text of Inbox.md, or null once the window shows that the task folder cannot be found. Rejects as Backend.read does. */
   async function readInbox(): Promise<string | null> {
     const fresh = await backend.read();
-    if (fresh === null) showNotice(folderGone());
+    if (fresh === null) showNotice('gone', folderGone());
     return fresh;
   }
 
   /** Reads Inbox.md and redraws the list if the file's text has changed since it was last drawn.
       `redraw` draws it from the file regardless: the way back after an edit that failed part-way. */
   const load = (redraw = false) => inTurn(async () => {
-    chosen = true;
     let fresh: string | null;
     try { fresh = await readInbox(); }
-    catch (e) { showNotice(notice('Could not open Inbox.md', reason(e), 'Choose another folder')); return; }
-    if (fresh === null || (fresh === text && !redraw)) return;
+    catch (e) { showNotice('unreadable', notice('Could not open Inbox.md', reason(e), 'Choose another folder')); return; }
+    if (fresh === null) return;
+    go('shown');
+    if (fresh === text && !redraw) return;
     const shown = text !== null;
     text = fresh;
     if (!shown) showHeader(true);
@@ -138,7 +145,7 @@ export async function mount(backend: Backend): Promise<void> {
       if (fresh === null) throw new Error(FOLDER_GONE + '.');
       const out = serialize(change(parse(fresh)));
       await backend.write(out);
-      text = out;
+      if (text !== null) text = out;   // over a notice the notice stays: only a read draws the list again
     });
     let last: Promise<unknown>;
     do { last = queue; await last; } while (last !== queue);   // a turn queued while waiting is waited for too
@@ -146,50 +153,53 @@ export async function mount(backend: Backend): Promise<void> {
   };
 
   function openComposer() {
-    if (text === null || composing) return;
-    composing = true;
-    field.value = '';
+    if (!can(s, 'openComposer')) return;
+    go('openComposer');
+    input.value = '';
     clearError();
     composer.classList.remove('is-leaving');
     composer.inert = false;
-    field.focus({ preventScroll: true });
+    input.focus({ preventScroll: true });
   }
   function closeComposer(returnFocus = true) {
-    if (!composing) return;
-    composing = false;
+    if (!can(s, 'closeComposer')) return;
+    go('closeComposer');
+    hideComposer(returnFocus);
+  }
+  function hideComposer(returnFocus: boolean) {
     composer.classList.add('is-leaving');
     composer.inert = true;
     if (returnFocus) head.querySelector<HTMLElement>('.pt-btn')?.focus({ preventScroll: true });
   }
   function clearError() {
     error.textContent = '';
-    field.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-invalid');
   }
 
   async function add() {
-    if (saving) return;
+    if (!can(s, 'startAdd')) return;
     const started = performance.now();
-    const title = cleanTitle(field.value);
+    const title = cleanTitle(input.value);
     if (!title) {
       error.textContent = NO_TITLE;
-      field.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-invalid', 'true');
       P.shake(form);
-      field.focus();
+      input.focus();
       return;
     }
-    saving = true;
+    go('startAdd');
     let next: Doc | null;
     try {
       next = await edit(doc => append(doc, title));
     } catch (e) {
+      go('addFailed');
       toast(reason(e));   // the file could not be read or saved: the reason is for the person
       void load();   // a folder that went away after the read shows its notice
       return;
-    } finally {
-      saving = false;
     }
+    const was = go('addSaved');
     if (!next) return;   // a reread failed while the add waited: its notice stays
-    closeComposer();
+    if (was.composer === 'open') hideComposer(true);
     const open = openTasks(next);
     showTasks(open);
     // Tasks are in file order, so a new line the file's rules do not hide is the last open task.
@@ -238,7 +248,7 @@ export async function mount(backend: Backend): Promise<void> {
 
   function startRename(li: HTMLElement) {
     const id = rows.taskOf(li)?.id;
-    if (renaming || !id) return;
+    if (!can(s, 'startRename') || !id) return;
     const at = rows.indexOf(li), label = $('.pt-task__title', li);
     const input = document.createElement('input');
     input.className = 'app__rename';
@@ -247,33 +257,41 @@ export async function mount(backend: Backend): Promise<void> {
     input.setAttribute('aria-label', 'Rename: ' + id.title);
     label.hidden = true;
     label.after(input);
-    renaming = li;
+    renamed = li;
+    go('startRename');
     input.focus({ preventScroll: true });
     input.select();
 
     let settled = false;
-    const keep = (returnFocus: boolean) => {
-      settled = true;
-      renaming = null;
+    const drop = () => {
+      settled = true;   // before the field leaves the page, so the blur that may cause does not save it
+      field = null;
       input.remove();
       label.hidden = false;
+    };
+    const keep = (returnFocus: boolean) => {
+      drop();
+      go('keepRename');
       if (returnFocus) check(li).focus({ preventScroll: true });
     };
+    field = { drop, keep: () => keep(false) };
     const save = async (byKey: boolean) => {
       if (settled) return;
       const title = cleanTitle(input.value);
       if (!title && byKey) { input.setAttribute('aria-invalid', 'true'); P.shake($('.pt-task', li)); return; }
       if (!title || title === id.title) { keep(byKey); return; }
       settled = true;
+      field = null;
+      go('saveRename');
       try {
         const saved = await edit(doc => rename(doc, id, title));
-        renaming = null;
+        go('renameSaved');
         if (!saved) return;
         showTasks(openTasks(saved));
         const renamed = byKey ? rows.reveal(at) : undefined;
         if (renamed) check(renamed).focus({ preventScroll: true });
       } catch (e) {
-        renaming = null;
+        go('renameFailed');
         await failed(e);
       }
     };
@@ -286,16 +304,18 @@ export async function mount(backend: Backend): Promise<void> {
   }
 
   async function choose() {
-    if (await backend.chooseFolder()) await load();
+    if (!(await backend.chooseFolder())) return;
+    go('folderPicked');
+    await load();
   }
 
   form.addEventListener('submit', e => { e.preventDefault(); void add(); });
-  field.addEventListener('input', clearError);
+  input.addEventListener('input', clearError);
 
   document.addEventListener('click', e => {
     if (!(e.target instanceof Element)) return;
     const ticked = rowOf(e.target, '.pt-check');
-    if (ticked) { if (ticked !== renaming) complete(ticked); }
+    if (ticked) { if (s.rename === 'none' || ticked !== renamed) complete(ticked); }
     else if (e.target.closest('[data-choose]')) void choose();
     else if (e.target.closest('[data-head] .pt-btn')) openComposer();
     else if (e.target.closest('[data-composer] .pt-btn--ghost')) closeComposer();
@@ -307,8 +327,8 @@ export async function mount(backend: Backend): Promise<void> {
   });
 
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && composing) { e.preventDefault(); closeComposer(); return; }
-    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey || text === null || composing) return;
+    if (e.key === 'Escape' && s.composer === 'open') { e.preventDefault(); closeComposer(); return; }
+    if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey || s.view !== 'inbox' || s.composer === 'open') return;
     if (e.key === 'n' || e.key === 'N') { e.preventDefault(); openComposer(); return; }
     const focused = rowOf(e.target, '.pt-check');
     if (e.key === 'Enter' && focused) { e.preventDefault(); startRename(focused); return; }
@@ -324,11 +344,11 @@ export async function mount(backend: Backend): Promise<void> {
 
   document.addEventListener('contextmenu', e => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
 
-  window.addEventListener('focus', () => { if (chosen && !renaming) void load(); });
+  window.addEventListener('focus', () => { if (can(s, 'focus')) { go('focus'); void load(); } });
 
   let folder: string | null;
   try { folder = await backend.folder(); }
-  catch (e) { showNotice(notice('Could not open your task folder', reason(e), 'Choose folder')); return; }
-  if (folder !== null) await load();
-  else showNotice(notice('Choose a folder for your tasks', 'Plaintask keeps them there as plain Markdown files.', 'Choose folder'));
+  catch (e) { showNotice('folderFailed', notice('Could not open your task folder', reason(e), 'Choose folder')); return; }
+  if (folder !== null) { go('folderFound'); await load(); }
+  else showNotice('folderNone', notice('Choose a folder for your tasks', 'Plaintask keeps them there as plain Markdown files.', 'Choose folder'));
 }

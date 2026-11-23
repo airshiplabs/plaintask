@@ -729,6 +729,44 @@ test('an Undo saved while the file stops being readable leaves the reason on scr
   assert.deepEqual((await page.evaluate(TOAST)).filter(s => !s.startsWith('Completed')), [], 'no error toast should follow');
 });
 
+// specs/DesktopSession.tla found the next two: a read queued before an edit comes back after the person has acted.
+const FAIL_NEXT_READ = `(() => { const invoke = window.__TAURI_INTERNALS__.invoke; let failed = false;
+  window.__TAURI_INTERNALS__.invoke = (command, args) => {
+    if (command === 'read_inbox' && !failed) { failed = true; return Promise.reject('Could not read /Users/test/Tasks/Inbox.md: Permission denied'); }
+    return invoke(command, args);
+  }; })()`;
+
+test('a rename saved after a reread queued before it failed leaves the reason on screen, not a list', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  // One task: the reread is queued first and fails; the rename's save comes after it and succeeds.
+  await page.evaluate(`${FAIL_NEXT_READ}; window.dispatchEvent(new Event("focus"));
+    ${doubleClick('[data-list] li:nth-child(1) .pt-task__title')}; ${renameTo('Buy oat milk')}; ${press('Enter')}`);
+  const renamed = THREE.replace('- [ ] Buy milk', '- [ ] Buy oat milk');
+  assert.equal(await page.poll('window.__disk.inbox', inbox => inbox === renamed), renamed, 'the rename should still be saved');
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-empty strong')), 'Could not open Inbox.md', 'the rename should not draw a list over the reason');
+  assert.deepEqual(await page.evaluate(ROWS), []);
+
+  await page.evaluate('window.dispatchEvent(new Event("focus"))');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 3), ['Buy oat milk', 'Call mum', 'Water plants'], 'the next reread should draw the file');
+  assert.equal(await page.evaluate('document.querySelector("[data-head] .pt-btn")?.textContent.trim()'), 'New task N', 'the header should offer New task again');
+});
+
+test('a title being edited when a reread finds the folder gone closes, and the window still rereads on focus', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(`window.__disk.gone = true; window.dispatchEvent(new Event("focus")); ${doubleClick('[data-list] li:nth-child(2) .pt-task__title')}`);
+  assert.equal(await page.poll(TEXT('[data-list] .pt-empty strong'), s => s !== null), 'Your task folder cannot be found');
+  assert.equal(await page.evaluate(EDITING), false, 'no title field should be left open');
+
+  await page.evaluate('window.__disk.gone = false; window.dispatchEvent(new Event("focus"))');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 3), ['Buy milk', 'Call mum', 'Water plants'], 'focus should read the file again');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(2) .pt-task__title'));
+  assert.equal(await page.poll(EDITING), true, 'a title should open for editing again');
+  assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should have been written');
+});
+
 test('a rename and a tick that cannot be saved say why and leave the list as the file is', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: THREE, writeError: 'Could not save /Users/test/Tasks/Inbox.md: Permission denied' });
   assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');

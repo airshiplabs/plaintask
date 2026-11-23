@@ -13,7 +13,7 @@ export const MANIFESTS = Object.freeze([
 /** The crate whose entry in Cargo.lock carries the app version. */
 export const CRATE_NAME = 'plaintask';
 
-/** Release phases in order. `status` reports one; NEXT_TASK names the brief that moves it forward. */
+/** Release phases in order. `status` reports one; NEXT_TASK names the brief that moves it forward (see nextTask()). */
 export const PHASES = Object.freeze(['plan', 'pr-open', 'pr-merged', 'built', 'verified', 'staged', 'published']);
 export const NEXT_TASK = Object.freeze({
   plan: 'draft-changelog',
@@ -214,4 +214,18 @@ export function derivePhase({ release, build, verify, mainHasRelease, pr }) {
   if (mainHasRelease) return 'pr-merged';
   if (pr?.state === 'OPEN') return 'pr-open';
   return 'plan';
+}
+
+/**
+ * The brief `status` names next: the phase's, except after a failed verify of a release not yet published, or when
+ * origin/main has moved past the build. A build that no tag or release holds yet can be replaced, so it is built
+ * again; one they hold cannot, so it is verified again, as stage and publish refuse it until verify passes.
+ * specs/ReleasePhases.tla model-checks this with derivePhase(); tests/spec-release-phases.test.mjs compares them.
+ * @param {string} phase from derivePhase()
+ * @param {{ verifyFailed: boolean, replaceable: boolean, mainAhead: boolean }} facts
+ */
+export function nextTask(phase, { verifyFailed, replaceable, mainAhead }) {
+  if (verifyFailed && phase !== 'published') return replaceable ? NEXT_TASK['pr-merged'] : NEXT_TASK.built;
+  if (mainAhead && replaceable) return NEXT_TASK['pr-merged'];
+  return NEXT_TASK[phase];
 }

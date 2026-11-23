@@ -34,7 +34,7 @@ import { appendFooter, sessionFooter } from '../../pr-session-footer/session-foo
 import { componentFor, validate as validateChangelog } from '../../keep-a-changelog/changelog.mjs';
 import { CHANGELOG, cutRelease, entriesOf, releaseBody, render, validateAdditions } from './changelog.mjs';
 import {
-  classifyCommit, compareVersions, derivePhase, INITIAL_VERSION, latestVersionTag, MANIFESTS, NEXT_TASK, nextVersion, parseVersion,
+  classifyCommit, compareVersions, derivePhase, INITIAL_VERSION, latestVersionTag, MANIFESTS, NEXT_TASK, nextTask, nextVersion, parseVersion,
   readManifestVersion, setManifestVersion,
 } from './plan.mjs';
 
@@ -382,16 +382,20 @@ function status({ version: explicit }) {
   if (existsSync(join(outDir(version, true), 'build.json'))) problems.push(`an --adhoc rehearsal build is in dist/release/${version}-adhoc; it is not part of this release`);
   // Until a tag exists the build can be replaced: a failed verify, or a commit on main after the built one, needs a new build.
   const replaceable = !tagSha && !release;
-  const verifyFailed = replaceable && verify !== null && !verify.ok;
+  const verifyFailed = verify !== null && !verify.ok;
   const mainAhead = replaceable && Boolean(build?.sha) && build.sha !== main && run('git', ['merge-base', '--is-ancestor', build.sha, BASE]).status === 0;
-  if (verifyFailed) problems.push(`verify.json records a failed verify (${(verify.checks ?? []).filter((item) => !item.ok).map((item) => item.id).join(', ')}): fix the cause and build again`);
+  if (verifyFailed && phase !== 'published') {
+    const failed = (verify.checks ?? []).filter((item) => !item.ok).map((item) => item.id).join(', ');
+    problems.push(replaceable
+      ? `verify.json records a failed verify (${failed}): fix the cause and build again`
+      : `verify.json records a failed verify (${failed}) of the build ${tag} holds: fix the cause and verify again`);
+  }
   if (mainAhead) problems.push(`${BASE} is at ${main}, ahead of the build of ${build.sha}: build again with --sha ${main}`);
-  const rebuild = verifyFailed || mainAhead;
 
   print({
     version,
     phase,
-    next: rebuild ? NEXT_TASK['pr-merged'] : NEXT_TASK[phase],
+    next: nextTask(phase, { verifyFailed, replaceable, mainAhead }),
     releaseSha: (mainAhead ? null : build?.sha) ?? (mainProblems.length === 0 ? main : null),
     facts: {
       main,
