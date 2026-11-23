@@ -290,6 +290,20 @@ test('Undo puts the task back in its place and restores the file exactly', { tim
   assert.equal(await page.evaluate('document.querySelectorAll("[data-list] .pt-check")[1].getAttribute("aria-checked")'), 'false');
 });
 
+test('a double-click on Undo puts the task back once, and the second click does nothing', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(tick(0));
+  assert.equal((await page.poll(WRITES, w => w.length === 1)).length, 1, 'precondition: the tick was not saved');
+
+  await page.evaluate('(b => { b.click(); b.click(); })(document.querySelector("[data-toasts] .pt-toast button"))');
+  assert.deepEqual(await page.poll(STAYING, rows => rows.length === 3), ['Buy milk', 'Call mum', 'Water plants'], 'the task should be back');
+  await new Promise(r => setTimeout(r, 500));   // longer than the toast's exit: a second Undo would have saved by now
+  assert.equal(await page.evaluate('window.__disk.writes.length'), 2, 'the second click should not save again');
+  assert.equal(await page.evaluate('window.__disk.inbox'), THREE, 'the task should stay open in the file');
+  assert.deepEqual(await page.evaluate(STAYING), ['Buy milk', 'Call mum', 'Water plants'], 'the task should stay on screen');
+});
+
 test('ticking the last open task shows the empty state', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: '- [x] Done before\n- [ ] Buy milk\n' });
   assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the task did not show');

@@ -43,6 +43,7 @@ export declare function bump(badge: HTMLElement): void;
 export declare function moveIndicator(nav: HTMLElement): void;
 export declare function openSheet(host: HTMLElement): void;
 export declare function closeSheet(host: HTMLElement): void;
+/** onAction runs at most once per toast, however often its button is clicked. */
 export declare function toast(host: HTMLElement, message: string, action?: string, onAction?: () => void): HTMLElement;
 export declare function shake(el: HTMLElement): void;
 /** A guess from the user agent; apps should set data-platform on .pt-root themselves. */

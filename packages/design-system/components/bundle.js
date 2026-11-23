@@ -129,7 +129,7 @@
     var wrap = document.createElement('div'); wrap.innerHTML = Toast({ message: message, action: action });
     var el = wrap.firstChild; host.appendChild(el);
     var close = function () { el.classList.add('is-leaving'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220); };
-    if (action) el.querySelector('button').onclick = function () { if (onAction) onAction(); close(); };
+    if (action) el.querySelector('button').onclick = function () { this.onclick = null; try { if (onAction) onAction(); } finally { close(); } };
     setTimeout(close, 5000);
     while (host.children.length > 2) host.removeChild(host.firstChild);
     return el;
