@@ -208,7 +208,9 @@ export async function mount(backend: Backend): Promise<void> {
       if (hadFocus && lost && next) check(next).focus({ preventScroll: true });
     });
     P.toast(toasts, 'Completed: ' + id.title, 'Undo', () => { void undo(li, id); });
-    edit(doc => toggle(doc, id)).catch(failed);
+    // Draws the list from the saved file, which holds what another editor changed since the last read. With no such
+    // change the file's open tasks are the rows on screen less the ticked one, and rows.show() then changes nothing.
+    edit(doc => toggle(doc, id)).then(saved => { if (saved) showTasks(openTasks(saved)); }).catch(failed);
     performance.measure('plaintask:tick', { start: started });
   }
 

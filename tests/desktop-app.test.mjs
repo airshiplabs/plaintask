@@ -508,6 +508,21 @@ test('ticking a task another editor has deleted says so and shows the file as it
   assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should be written');
 });
 
+test('ticking a task in a file another editor has changed shows the file\'s other changes too', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate('window.__disk.inbox = "- [ ] Buy milk\\n- [ ] Something new\\n- [ ] Water plants\\n"');
+  await page.evaluate(tick(0));
+  // Both lists are read in one step, so no time passes between them in which the ticked row could finish folding.
+  const drawn = await page.poll(`({ staying: ${STAYING}, all: ${ROWS} })`, lists => lists.staying.includes('Something new'));
+  assert.deepEqual(drawn.staying, ['Something new', 'Water plants'], 'the list should show the task added elsewhere and not the one deleted elsewhere');
+  assert.ok(drawn.all.includes('Buy milk'), 'the ticked row should still be folding away, not taken off early');
+  assert.equal(await page.evaluate('window.__disk.inbox'), '- [x] Buy milk\n- [ ] Something new\n- [ ] Water plants\n');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.evaluate(DOCK), 2);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Something new', 'Water plants'], 'the ticked row should fold away');
+});
+
 test('a tick that cannot be saved says why and puts the row back unticked', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: THREE, writeError: 'Could not save /Users/test/Tasks/Inbox.md: Permission denied' });
   assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
