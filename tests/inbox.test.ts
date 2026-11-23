@@ -1,6 +1,6 @@
 // inbox.test.ts - the task file rules (apps/desktop/src/inbox.ts): what counts as a task, and that the app's two
 // edits (tick a task, add a task) change nothing else in a file a person also edits by hand.
-//   node --experimental-strip-types --test "tests/*.test.ts"      (PLAINTASK_PERF=1 also runs the speed budget)
+//   node --experimental-strip-types --test "tests/*.test.ts"      (pnpm test:perf runs the speed budget)
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { append, parse, rename, serialize, tasks, toggle } from '../apps/desktop/src/inbox.ts';
@@ -60,6 +60,8 @@ test('lines inside a fenced code block or an HTML comment are never tasks, and c
   assert.deepEqual(titles('```\n- [ ] in\n``` js\n- [ ] still in: a closing fence has no info string\n```\n'), []);
   assert.deepEqual(titles('<!-- one line -->\n- [ ] after a one-line comment\n'), ['. after a one-line comment']);
   assert.deepEqual(titles('<!-- starts\n- [ ] inside\nends -->\n- [ ] after it\n'), ['. after it']);
+  assert.deepEqual(titles('   <!-- indented three spaces\n- [ ] inside\n-->\n- [ ] after it\n'), ['. after it']);
+  assert.deepEqual(titles('    <!-- four spaces in is not a comment\n- [ ] not hidden\n-->\n'), ['. not hidden']);
   assert.deepEqual(titles('Text <!--\n- [ ] after a comment that does not start the line\n-->\n'), ['. after a comment that does not start the line']);
   assert.deepEqual(titles('```\n<!--\n```\n- [ ] a comment inside a code block is code\n'), ['. a comment inside a code block is code']);
   assert.deepEqual(titles('<!--\n```\n-->\n- [ ] a fence inside a comment is comment\n'), ['. a fence inside a comment is comment']);
@@ -178,7 +180,7 @@ test('renaming a task that is no longer in the file fails and names the task', (
   assert.throws(() => rename(parse('- [ ] Something else\n'), id, 'Buy oat milk'), /Buy milk/);
 });
 
-test('ticking a task in a 10,000-line file takes under 5 ms from text to text', { skip: !process.env.PLAINTASK_PERF && 'set PLAINTASK_PERF=1 to run the speed budget' }, () => {
+test('ticking a task in a 10,000-line file takes under 5 ms from text to text', { skip: !process.env.PLAINTASK_PERF && 'run pnpm test:perf for the speed budget: it runs one test file at a time, so no other test shares the CPU' }, () => {
   const text = Array.from({ length: 10000 }, (_, i) => (i % 10 ? '- [ ] Task number ' + i : '## Section ' + i)).join('\n') + '\n';
   const id = { title: 'Task number 9999', occurrence: 0 };
   const run = () => { const t = performance.now(); const out = serialize(toggle(parse(text), id)); const ms = performance.now() - t; assert.equal(out.length, text.length); return ms; };

@@ -1,5 +1,6 @@
 // It knows nothing of Tauri: everything outside the page comes through the Backend it is mounted with.
 import { append, cleanTitle, NO_TITLE, parse, rename, serialize, tasks, toggle, type Doc, type Task, type TaskId } from './inbox.ts';
+import { LEAVING, rowList } from './rows.ts';
 
 export interface Backend {
   /** The task folder's path, or null when the person has not chosen one. */
@@ -25,7 +26,6 @@ const $ = <E extends HTMLElement = HTMLElement>(selector: string, within: Parent
 const esc = (s: string) => s.replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 /** Tauri rejects with the Rust error's text itself; anything else thrown is an Error. */
 const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const sameList = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /** A row's key: its task's id as one string, so it can sit in a data attribute. */
 const key = (task: Task) => task.id.occurrence + ':' + task.id.title;
@@ -47,13 +47,10 @@ const folderGone = () => notice(FOLDER_GONE, 'It may have been moved, renamed or
 
 const EMPTY = P.EmptyState({ title: 'Inbox zero', body: 'New tasks you capture land here first.' });
 
-/** How long a ticked row stays drawn: the design system's complete() holds it for 620 ms, then folds it over 380 ms. A ticked
-    row carries data-leaving for that second. It is no longer one of the list's tasks: keys skip it and it cannot be ticked again. */
-const LEAVING = 'data-leaving';
-
 /** Draws the window and resolves once it shows the folder's Inbox, or the request to choose a folder. */
 export async function mount(backend: Backend): Promise<void> {
   const list = $('[data-list]'), head = $('[data-head]'), toasts = $('[data-toasts]');
+  const rows = rowList(list, $('[data-scroll]'), rowHTML, key, EMPTY);
   $('[data-side]').innerHTML = P.Sidebar({ items: [{ id: 'inbox', label: 'Inbox', icon: 'inbox', current: true }] });
   P.moveIndicator($('.pt-nav'));
   const badge = $('[data-badge="inbox"]');
@@ -71,14 +68,7 @@ export async function mount(backend: Backend): Promise<void> {
   function showHeader(canAdd: boolean) {
     head.innerHTML = P.ViewHeader({ title: 'Inbox', ...(canAdd && { action: { label: 'New task', variant: 'primary', icon: 'plus', kbd: 'N' } }) });
   }
-  /** The rows of tasks that are staying, in order. */
-  const rows = () => [...list.querySelectorAll<HTMLElement>('li[data-row]:not([' + LEAVING + '])')];
   const check = (li: Element) => $('.pt-check', li);
-  function stayingBeside(li: Element): Element | null {
-    for (let el = li.nextElementSibling; el; el = el.nextElementSibling) if (!el.hasAttribute(LEAVING)) return el;
-    for (let el = li.previousElementSibling; el; el = el.previousElementSibling) if (!el.hasAttribute(LEAVING)) return el;
-    return null;
-  }
   const showDockCount = (count: number) => { backend.badge(count).catch((e: unknown) => console.error('Dock badge:', reason(e))); };
   function showCount(count: number) {
     const label = count ? String(count) : '';
@@ -90,19 +80,7 @@ export async function mount(backend: Backend): Promise<void> {
   }
 
   function showTasks(open: Task[]) {
-    const keys = open.map(key), drawn = rows(), drawnKeys = drawn.map(li => li.dataset.row);
-    const at = keys.findIndex((k, i) => k !== drawnKeys[i]);
-    const oneNew = drawn.length > 0 && keys.length === drawn.length + 1 && sameList(keys.slice(at + 1), drawnKeys.slice(at));
-    const oneChanged = at !== -1 && keys.length === drawn.length && sameList(keys.slice(at + 1), drawnKeys.slice(at + 1));
-    if (oneNew) {
-      const holder = document.createElement('ul');
-      holder.innerHTML = rowHTML(open[at]!);
-      $('ul', list).insertBefore(holder.firstElementChild!, drawn[at] ?? null);
-    } else if (oneChanged) {
-      drawn[at]!.outerHTML = rowHTML(open[at]!);
-    } else if (!sameList(keys, drawnKeys) || !list.firstElementChild) {
-      list.innerHTML = open.length ? '<ul>' + open.map(rowHTML).join('') + '</ul>' : EMPTY;
-    }
+    rows.show(open);
     showCount(open.length);
   }
   let noticeShown: string | null = null;
@@ -111,7 +89,7 @@ export async function mount(backend: Backend): Promise<void> {
     noticeShown = html;
     closeComposer(false);
     showHeader(false);
-    list.innerHTML = html;
+    rows.clear(html);
     if (badge.textContent) showDockCount(0);
     badge.textContent = '';
     text = null;
@@ -135,7 +113,7 @@ export async function mount(backend: Backend): Promise<void> {
     if (fresh === null) { showNotice(folderGone()); return; }
     if (fresh === text && !redraw) return;
     if (text === null) showHeader(true);
-    if (text === null || redraw) list.innerHTML = '';
+    if (text === null || redraw) rows.clear('');
     showTasks(openTasks(parse(fresh)));
     text = fresh;
   });
@@ -203,13 +181,12 @@ export async function mount(backend: Backend): Promise<void> {
     }
     if (!next) return;   // a reread failed while the add waited: its notice stays
     closeComposer();
-    showTasks(openTasks(next));
-    // Rows are in file order and leaving rows are left out, so a new line the file's rules do not hide is the last row.
-    const last = rows().at(-1);
-    const added = last && idOf(last.dataset.row!).title === title ? last : undefined;
-    if (added) {
-      P.enter($('.pt-task', added));
-      added.scrollIntoView({ block: 'nearest' });
+    const open = openTasks(next);
+    showTasks(open);
+    // Tasks are in file order, so a new line the file's rules do not hide is the last open task.
+    if (open.at(-1)?.title === title) {
+      const added = rows.reveal(open.length - 1);
+      if (added) P.enter($('.pt-task', added));
     } else {
       toast('"' + title + '" is saved at the end of Inbox.md, but a line above it hides it.');
     }
@@ -221,13 +198,11 @@ export async function mount(backend: Backend): Promise<void> {
     const started = performance.now();
     const id = idOf(li.dataset.row!);
     const hadFocus = li.contains(document.activeElement);
-    li.setAttribute(LEAVING, '');
-    showCount(rows().length);
+    rows.leave(li);
+    showCount(rows.count());
     P.complete($('.pt-task', li), () => {
-      if (!li.isConnected) return;   // the list was redrawn while the row was folding (Undo, or the file changed)
-      const next = stayingBeside(li);
-      li.remove();
-      if (!list.querySelector('li')) list.innerHTML = EMPTY;
+      const next = hadFocus ? rows.beside(li) : undefined;
+      if (!rows.drop(li)) return;   // the list was drawn again while the row was folding (Undo, or the file changed)
       // The fold moved the keyboard to the neighbouring row. If that row is leaving too, or there was none, find one that is staying.
       const lost = document.activeElement === document.body || document.activeElement?.closest('li[' + LEAVING + ']');
       if (hadFocus && lost && next) check(next).focus({ preventScroll: true });
@@ -241,16 +216,17 @@ export async function mount(backend: Backend): Promise<void> {
     try {
       const saved = await edit(doc => toggle(doc, id));
       if (!saved) return;
-      li.remove();
-      showTasks(openTasks(saved));
-      const back = rows().find(row => row.dataset.row === li.dataset.row);
+      rows.drop(li);
+      const open = openTasks(saved);
+      showTasks(open);
+      const back = rows.row(open.findIndex(task => key(task) === li.dataset.row));
       if (back) P.enter($('.pt-task', back));
     } catch (e) { await failed(e); }
   }
 
   function startRename(li: HTMLElement) {
     if (renaming || li.hasAttribute(LEAVING)) return;
-    const id = idOf(li.dataset.row!), label = $('.pt-task__title', li), at = rows().indexOf(li);
+    const id = idOf(li.dataset.row!), label = $('.pt-task__title', li), at = rows.indexOf(li);
     const input = document.createElement('input');
     input.className = 'app__rename';
     input.value = id.title;
@@ -281,8 +257,8 @@ export async function mount(backend: Backend): Promise<void> {
         renaming = null;
         if (!saved) return;
         showTasks(openTasks(saved));
-        const renamed = rows()[at];
-        if (byKey && renamed) check(renamed).focus({ preventScroll: true });
+        const renamed = byKey ? rows.reveal(at) : undefined;
+        if (renamed) check(renamed).focus({ preventScroll: true });
       } catch (e) {
         renaming = null;
         await failed(e);
@@ -324,11 +300,13 @@ export async function mount(backend: Backend): Promise<void> {
     const focused = e.target instanceof Element ? e.target.closest('.pt-check')?.closest<HTMLElement>('li[data-row]') : null;
     if (e.key === 'Enter' && focused) { e.preventDefault(); startRename(focused); return; }
     const down = e.key === 'j' || e.key === 'ArrowDown', up = e.key === 'k' || e.key === 'ArrowUp';
-    const staying = rows();
-    if (!(down || up) || !staying.length) return;
+    const count = rows.count();
+    if (!(down || up) || !count) return;
     e.preventDefault();
-    const at = staying.findIndex(li => li.contains(document.activeElement));
-    check(staying[down ? Math.min(at + 1, staying.length - 1) : Math.max(at - 1, 0)]!).focus();
+    const current = document.activeElement?.closest('li[data-row]');
+    const at = current ? rows.indexOf(current) : -1;
+    const next = rows.reveal(down ? Math.min(at + 1, count - 1) : Math.max(at - 1, 0));
+    if (next) check(next).focus();
   });
 
   document.addEventListener('contextmenu', e => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });

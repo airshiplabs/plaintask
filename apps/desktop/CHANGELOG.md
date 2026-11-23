@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The Dock icon shows the number of open Inbox tasks ([#66])
 
+### Changed
+
+- Adding and ticking tasks in an Inbox of thousands of tasks no longer lags ([#88])
+
 ### Fixed
 
 - Inbox.md is read again when the window regains focus after it could not be opened ([#77])
@@ -50,3 +54,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#83]: https://github.com/airshiplabs/plaintask/pull/83
 [#84]: https://github.com/airshiplabs/plaintask/pull/84
 [#85]: https://github.com/airshiplabs/plaintask/pull/85
+[#88]: https://github.com/airshiplabs/plaintask/pull/88

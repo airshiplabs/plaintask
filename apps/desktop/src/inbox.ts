@@ -48,6 +48,7 @@ export function serialize(doc: Doc): string {
     or a task the app adds at the end. A task line never closes a comment, so ticking, renaming or adding a task never
     changes which lines are tasks, and a task's id stays on its line. */
 function blockEnd(doc: Doc, at: number, text: string): number {
+  if (!mayOpenBlock(text)) return -1;
   const fence = CODE_OPEN.exec(text)?.[1];
   const closes = fence
     ? (line: string) => { const close = CODE_CLOSE.exec(line)?.[1]; return !!close && close[0] === fence[0] && close.length >= fence.length; }
@@ -56,6 +57,15 @@ function blockEnd(doc: Doc, at: number, text: string): number {
   if (!fence && text.includes(COMMENT_CLOSE)) return at;
   for (let i = at + 1; i < doc.length; i++) if (closes(doc[i]!.text)) return i;
   return -1;
+}
+
+/** False when CODE_OPEN and COMMENT_OPEN cannot match: the first character after up to three spaces is not "`", "~" or "<".
+    Most lines fail this test, so listing a 10,000-line file runs no regex on them. */
+function mayOpenBlock(text: string): boolean {
+  let i = 0;
+  while (i < 3 && text.charCodeAt(i) === 32) i++;
+  const c = text.charCodeAt(i);
+  return c === 96 || c === 126 || c === 60;   // ` ~ <
 }
 
 /** A task and where it sits: its line, and the position in that line of the character between the brackets. */
@@ -69,9 +79,9 @@ function frontMatterEnd(doc: Doc): number {
   return doc.findIndex((line, i) => i > 0 && line.text.trimEnd() === FENCE);
 }
 
-function find(doc: Doc): Found[] {
-  const found: Found[] = [];
-  const seen = new Map<string, number>();
+/** Calls `visit` with each task line in file order: its line, the position of its mark, whether it is ticked, and its title.
+    Stops at the first call that returns true. */
+function eachTask(doc: Doc, visit: (line: number, mark: number, done: boolean, title: string) => boolean): void {
   const frontMatter = frontMatterEnd(doc);
   for (let i = 0; i < doc.length; i++) {
     const raw = doc[i]!.text;
@@ -80,24 +90,35 @@ function find(doc: Doc): Found[] {
     if (i <= frontMatter) continue;
     const end = blockEnd(doc, i, text);
     if (end !== -1) { i = end; continue; }
-    const match = TASK.exec(text);
+    const match = text.charCodeAt(0) === 45 ? TASK.exec(text) : null;   // "-": every task line starts with it
     const title = match?.[2]?.trim();
     if (!match || !title) continue;
-    const occurrence = seen.get(title) ?? 0;
-    seen.set(title, occurrence + 1);
-    found.push({ id: { title, occurrence }, title, done: match[1] !== ' ', line: i, mark: skip + 3 });
+    if (visit(i, skip + 3, match[1] !== ' ', title)) return;
   }
-  return found;
 }
 
 /** The file's tasks in file order, done ones included. */
 export function tasks(doc: Doc): Task[] {
-  return find(doc).map(({ id, title, done }) => ({ id, title, done }));
+  const found: Task[] = [];
+  const seen = new Map<string, number>();
+  eachTask(doc, (_line, _mark, done, title) => {
+    const occurrence = seen.get(title) ?? 0;
+    seen.set(title, occurrence + 1);
+    found.push({ id: { title, occurrence }, title, done });
+    return false;
+  });
+  return found;
 }
 
-/** The task with this id and where it sits. Throws, naming the task, if it is not in the file. */
+/** The task with this id and where it sits. Throws, naming the task, if it is not in the file.
+    It counts only the tasks with this title, so it keeps no map of every title, and stops at the task. */
 function locate(doc: Doc, id: TaskId): Found {
-  const task = find(doc).find(t => t.id.title === id.title && t.id.occurrence === id.occurrence);
+  let before = 0, task: Found | undefined;
+  eachTask(doc, (line, mark, done, title) => {
+    if (title !== id.title || before++ !== id.occurrence) return false;
+    task = { id, title, done, line, mark };
+    return true;
+  });
   if (!task) throw new Error('"' + id.title + '" is no longer in the file.');
   return task;
 }

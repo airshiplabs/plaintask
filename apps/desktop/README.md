@@ -29,6 +29,7 @@ Run from the repo root.
 | `pnpm --filter @plaintask/desktop app` | Builds `src-tauri/target/release/bundle/macos/Plaintask.app`: sandboxed, ad-hoc signed |
 | `pnpm --filter @plaintask/desktop typecheck` | Type-checks `src/` |
 | `pnpm test` | Runs the task file rules and the page tests with the repo's other tests |
+| `pnpm test:perf` | Runs the speed budgets below, one test file at a time |
 | `pnpm --filter @plaintask/desktop check:rust` | Runs clippy on the Rust layer with warnings as errors, then its file and folder tests. CI runs it on macOS when `src-tauri/` changes (`.github/workflows/desktop-rust.yml`) |
 | `pnpm --filter @plaintask/desktop measure` | Times launches of the built app |
 | `node .claude/skills/release/scripts/release.mjs build --version <V> --adhoc` | Builds an ad-hoc-signed `dist/release/<V>-adhoc/Plaintask_<V>_aarch64.dmg` to rehearse a release. The `release` skill makes the signed, notarized one |
@@ -39,6 +40,7 @@ Run from the repo root.
 | --- | --- |
 | `src/inbox.ts` | The task file rules as pure functions: parse, list tasks, tick, rename, append, serialize |
 | `src/app.ts` | The window: draws the list, the new-task form, ticking, Undo, renaming, keys. Reaches the outside only through its `Backend` |
+| `src/rows.ts` | The list's rows, drawn only in and one view's height around the scroll view, so a 10,000-task Inbox draws ~50 rows |
 | `src/main.ts` | Mounts `app.ts` on the Rust commands and asks for the window |
 | `src/index.html`, `src/app.css` | Shell markup; the layout `bundle.css` leaves to the app |
 | `build.mjs` | Bundles `src/` and copies the design system's three files into `dist/` |
@@ -67,14 +69,14 @@ Launch a Developer ID signed build through Launch Services: `open -W -n --env PL
 
 ## Speed budgets
 
-Measured 2026-11-21 on an M-series Mac at a load average of 6 to 8, sandboxed release build, screen unlocked.
+Launch: measured 2026-11-21 on an M-series Mac at a load average of 6 to 8, sandboxed release build, screen unlocked. The other three: measured 2026-11-22 on the same Mac at a load average of about 65, by `pnpm test:perf`, which runs one test file at a time: run beside the other test files, the p95 measures the other files, not this code.
 
 | Budget | Threshold | Measured | Met | Command |
 | --- | --- | --- | --- | --- |
 | Launch to first painted frame, median of 10, folder chosen | 400 ms | 483 ms | No | `pnpm --filter @plaintask/desktop measure` |
-| Parse + tick + serialize, 10,000 lines, p95 | 5 ms | 3.3 ms (median 2.5 ms) | Yes | `PLAINTASK_PERF=1 pnpm test` |
-| Add a task, 10,000 rows, key press to row drawn, median | 16 ms | 23.6 ms | No | same |
-| Tick a task, 10,000 rows, click to row changed, median | 16 ms | 13.8 ms | Yes | same |
+| Parse + tick + serialize, 10,000 lines, p95 | 5 ms | 2.8 ms (median 1.6 ms) | Yes | `pnpm test:perf` |
+| Add a task, 10,000 tasks, key press to row drawn, median | 16 ms | 6.0 ms | Yes | same |
+| Tick a task, 10,000 tasks, click to row changed, median | 16 ms | 1.0 ms | Yes | same |
 
 Where the launch time goes, same machine and minute:
 

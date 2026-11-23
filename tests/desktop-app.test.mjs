@@ -717,10 +717,79 @@ test('a right-click shows no web page menu on the window, and the usual menu in 
   assert.equal(await page.evaluate(rightClick('[data-composer] input')), true, 'a right-click in the task field should be left alone');
 });
 
-test('in a 10,000-task Inbox, adding a task and ticking one each take under 16 ms from the key press to the list changing', { timeout: 120000, skip: !process.env.PLAINTASK_PERF && 'set PLAINTASK_PERF=1 to run the speed budget' }, async t => {
+/** A long Inbox: `n` open tasks named "Task 0" to "Task n-1". */
+const LONG = n => Array.from({ length: n }, (_, i) => '- [ ] Task ' + i).join('\n') + '\n';
+const DRAWN_ROWS = 'document.querySelectorAll("[data-list] li").length';
+const SCROLL = '[data-scroll]';
+/** Scrolls the list to `top` px (or to its end when 'end'), as the wheel or the scroll bar would. */
+const scrollList = top => `(s => { s.scrollTop = ${top === 'end' ? 's.scrollHeight' : top}; })(document.querySelector(${js(SCROLL)}))`;
+/** Whether the element is drawn inside the list's scroll view, not under its top or bottom edge. */
+const inView = selector => `(e => { const v = document.querySelector(${js(SCROLL)}).getBoundingClientRect(), r = e.getBoundingClientRect(); return r.top >= v.top - 1 && r.bottom <= v.bottom + 1; })(${selector})`;
+
+test('a long Inbox draws only the rows near the view, and scrolling draws the rows that come into it', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: LONG(2000) });
+  assert.equal(await page.poll(TEXT('[data-badge="inbox"]'), s => s === '2000'), '2000', 'precondition: the sidebar did not count the 2,000 tasks');
+  assert.equal((await page.evaluate(ROWS))[0], 'Task 0');
+  assert.ok(await page.evaluate(DRAWN_ROWS) <= 80, 'only the rows near the view should be drawn');
+  const [height, view] = await page.evaluate(`(s => [s.scrollHeight, s.clientHeight])(document.querySelector(${js(SCROLL)}))`);
+  assert.ok(height > 2000 * 30, 'the list should scroll as far as 2,000 rows reach, not only as far as the drawn ones');
+  assert.ok(view < height, 'precondition: the list does not scroll');
+
+  await page.evaluate(scrollList('end'));
+  assert.equal((await page.poll(ROWS, rows => rows.at(-1) === 'Task 1999')).at(-1), 'Task 1999', 'scrolled to its end, the list should draw its last task');
+  assert.ok(await page.evaluate(inView('document.querySelector("[data-list] li:last-child")')), 'the last task should be in view');
+  assert.ok(await page.evaluate(DRAWN_ROWS) <= 80, 'the rows scrolled past should no longer be drawn');
+
+  await page.evaluate(scrollList(Math.round(height / 2)));
+  const middle = await page.poll(ROWS, rows => !rows.includes('Task 1999') && !rows.includes('Task 0'));
+  const at = Number(middle[0].slice(5));
+  assert.ok(at > 800 && at < 1200, 'halfway down, the list should draw the tasks halfway through the file, not ' + middle[0]);
+  assert.deepEqual(middle, Array.from({ length: middle.length }, (_, i) => 'Task ' + (at + i)), 'the drawn rows should be one run of tasks in file order');
+});
+
+test('in a long Inbox, j moves the keyboard past the rows drawn so far and the list scrolls to keep it in view', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: LONG(300) });
+  assert.equal(await page.poll(TEXT('[data-badge="inbox"]'), s => s === '300'), '300', 'precondition: the 300 tasks did not show');
+  await page.evaluate(press('j'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Task 0');
+  for (let i = 0; i < 150; i++) await page.evaluate(press('j'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Task 150');
+  assert.ok(await page.evaluate(inView('document.activeElement')), 'the row with the keyboard should be in view');
+  for (let i = 0; i < 20; i++) await page.evaluate(press('k'));
+  assert.equal(await page.evaluate(FOCUSED_ROW), 'Task 130');
+  assert.ok(await page.evaluate(inView('document.activeElement')), 'the row with the keyboard should still be in view');
+});
+
+test('a task added to a long Inbox shows as its last row, scrolled into view', { timeout: 60000 }, async t => {
+  const inbox = LONG(2000);
+  const page = await openApp(t, { inbox });
+  assert.equal(await page.poll(TEXT('[data-badge="inbox"]'), s => s === '2000'), '2000', 'precondition: the 2,000 tasks did not show');
+  await page.evaluate(press('n'));
+  await page.evaluate(type('Order floor tiles'));
+  await page.evaluate(RETURN);
+  assert.equal((await page.poll(ROWS, rows => rows.at(-1) === 'Order floor tiles')).at(-1), 'Order floor tiles');
+  assert.deepEqual(await page.evaluate(WRITES), [inbox + '- [ ] Order floor tiles\n']);
+  assert.ok(await page.evaluate(inView('document.querySelector("[data-list] li:last-child")')), 'the new row should be in view');
+  assert.equal(await page.evaluate('document.querySelector("[data-list] li:last-child .pt-task").classList.contains("is-entering")'), true, 'the new row should play the enter animation');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2001');
+});
+
+test('a title being edited is saved when its row is scrolled out of the list', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: LONG(2000) });
+  assert.equal(await page.poll(TEXT('[data-badge="inbox"]'), s => s === '2000'), '2000', 'precondition: the 2,000 tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Task zero'));
+  await page.evaluate(scrollList('end'));
+  assert.equal((await page.poll(WRITES, w => w.length > 0))[0]?.split('\n')[0], '- [ ] Task zero', 'leaving the field by scrolling its row away should save the title, as clicking away does');
+  assert.equal(await page.evaluate(EDITING), false);
+  await page.evaluate(scrollList(0));
+  assert.equal((await page.poll(ROWS, rows => rows[0] === 'Task zero'))[0], 'Task zero', 'scrolled back, the row should show the new title');
+});
+
+test('in a 10,000-task Inbox, adding a task and ticking one each take under 16 ms from the key press to the list changing', { timeout: 120000, skip: !process.env.PLAINTASK_PERF && 'run pnpm test:perf for the speed budget: it runs one test file at a time, so no other test shares the CPU' }, async t => {
   const inbox = Array.from({ length: 10000 }, (_, i) => '- [ ] Task number ' + i).join('\n') + '\n';
   const page = await openApp(t, { inbox });
-  assert.equal(await page.poll('document.querySelectorAll("[data-list] li").length', n => n === 10000), 10000, 'precondition: the 10,000 rows did not show');
+  assert.equal(await page.poll(TEXT('[data-badge="inbox"]'), s => s === '10000'), '10000', 'precondition: the 10,000 tasks did not show');
   const median = async name => { const d = await page.evaluate(`performance.getEntriesByName(${js(name)}).map(e => e.duration).sort((a, b) => a - b)`); return d[Math.floor(d.length / 2)]; };
 
   for (let i = 0; i < 7; i++) {
@@ -729,7 +798,11 @@ test('in a 10,000-task Inbox, adding a task and ticking one each take under 16 m
     await page.evaluate(RETURN);
     assert.equal(await page.poll('performance.getEntriesByName("plaintask:add").length', n => n > i), i + 1, 'precondition: add number ' + i + ' did not finish');
   }
-  for (let i = 0; i < 7; i++) await page.evaluate(tick(5000));
+  // ticks in the middle of the file: scroll halfway, then click the middle drawn row each time
+  await page.evaluate(scrollList(`s.scrollHeight / 2`));
+  await page.poll(ROWS, rows => rows.some(r => /^Task number 5\d\d\d$/.test(r)));
+  const MIDDLE = '(c => c[c.length >> 1].click())(document.querySelectorAll("[data-list] li:not([data-leaving]) .pt-check"))';
+  for (let i = 0; i < 7; i++) await page.evaluate(MIDDLE);
   const add = await median('plaintask:add'), ticked = await median('plaintask:tick');
   console.log('10,000 tasks: add median ' + add.toFixed(1) + ' ms, tick median ' + ticked.toFixed(1) + ' ms');
   assert.ok(add <= 16, 'adding took a median of ' + add.toFixed(1) + ' ms; the budget is 16 ms');
