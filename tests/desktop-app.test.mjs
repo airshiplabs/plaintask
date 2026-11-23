@@ -116,6 +116,39 @@ test('a file that cannot be read says why and offers another folder', { timeout:
   assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose another folder');
 });
 
+test('a file that was unreadable is read again when the window is used again, and its tasks come back', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { readError: '/Users/test/Tasks/Inbox.md is not UTF-8 text, so Plaintask will not change it.', inbox: '- [ ] Buy milk\n' });
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open Inbox.md', 'precondition: the read error did not show');
+  await page.evaluate('window.__disk.readError = null; window.dispatchEvent(new Event("focus"))');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk']);
+  assert.equal(await page.evaluate('document.querySelector("[data-head] .pt-btn").textContent.trim()'), 'New task N', 'the header should offer New task again');
+});
+
+test('a file that stays unreadable is read again on focus, and the same message stays put with the keyboard on its button', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { readError: '/Users/test/Tasks/Inbox.md is not UTF-8 text, so Plaintask will not change it.' });
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open Inbox.md', 'precondition: the read error did not show');
+  await page.evaluate('window.__shown = document.querySelector("[data-list] .pt-empty"); document.querySelector("[data-list] .pt-btn").focus()');
+  const reads = 'window.__disk.calls.filter(c => c === "read_inbox").length';
+  const before = await page.evaluate(reads);
+  await page.evaluate('window.dispatchEvent(new Event("focus"))');
+  assert.ok(await page.poll(reads, n => n > before), 'focus should read the file again');
+  assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-empty") === window.__shown'), true, 'the same message should not be drawn again');
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose another folder');
+  assert.equal(await page.evaluate('document.activeElement === document.querySelector("[data-list] .pt-btn")'), true, 'the keyboard should stay on the button');
+
+  await page.evaluate('window.__disk.readError = "/Users/test/Tasks/Inbox.md: Permission denied"; window.dispatchEvent(new Event("focus"))');
+  assert.match(await page.poll(TEXT('[data-list] .pt-empty'), s => /Permission denied/.test(s ?? '')), /Permission denied/, 'a different reason should replace the message');
+});
+
+test('with no folder chosen, the window regaining focus reads no file', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { folder: null });
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Choose a folder for your tasks', 'precondition: the app did not ask for a folder');
+  await page.evaluate('window.dispatchEvent(new Event("focus"))');
+  await page.evaluate('new Promise(r => setTimeout(r, 200))');
+  assert.deepEqual(await page.evaluate('window.__disk.calls.filter(c => c === "read_inbox")'), []);
+  assert.equal(await page.evaluate(TEXT('[data-list] strong')), 'Choose a folder for your tasks');
+});
+
 test('a folder choice that cannot be recalled says why and offers the folder panel', { timeout: 60000 }, async t => {
   const page = await openApp(t, { folderError: 'Could not read the folder choice in /Users/test/Library: Permission denied' });
   assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open your task folder');

@@ -62,6 +62,7 @@ export async function mount(backend: Backend): Promise<void> {
   let composing = false;
   let saving = false;               // an add is on its way to the file
   let renaming: HTMLElement | null = null;
+  let chosen = false;               // a folder is chosen, so Inbox.md is read again when the window regains focus, even after it failed to read
 
   function showHeader(canAdd: boolean) {
     head.innerHTML = P.ViewHeader({ title: 'Inbox', ...(canAdd && { action: { label: 'New task', variant: 'primary', icon: 'plus', kbd: 'N' } }) });
@@ -100,7 +101,10 @@ export async function mount(backend: Backend): Promise<void> {
     }
     showCount(open.length);
   }
+  let noticeShown: string | null = null;
   function showNotice(html: string) {
+    if (text === null && html === noticeShown) return;   // the same notice again, as after a reread on focus: keep it, and the keyboard on its button
+    noticeShown = html;
     closeComposer(false);
     showHeader(false);
     list.innerHTML = html;
@@ -120,6 +124,7 @@ export async function mount(backend: Backend): Promise<void> {
   /** Reads Inbox.md and redraws the list if the file's text has changed since it was last drawn.
       `redraw` draws it from the file regardless: the way back after an edit that failed part-way. */
   const load = (redraw = false) => inTurn(async () => {
+    chosen = true;
     let fresh: string;
     try { fresh = await backend.read(); }
     catch (e) { showNotice(notice('Could not open Inbox.md', reason(e), 'Choose another folder')); return; }
@@ -302,7 +307,7 @@ export async function mount(backend: Backend): Promise<void> {
 
   document.addEventListener('contextmenu', e => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
 
-  window.addEventListener('focus', () => { if (text !== null && !renaming) void load(); });
+  window.addEventListener('focus', () => { if (chosen && !renaming) void load(); });
 
   let folder: string | null;
   try { folder = await backend.folder(); }
