@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Inbox.md is read again when the window regains focus after it could not be opened ([#77])
+- Task lines inside a code block or an HTML comment no longer show in the Inbox or its count ([#78])
 
 ## [0.1.0] - 2026-11-22
 
@@ -34,3 +35,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#44]: https://github.com/airshiplabs/plaintask/pull/44
 [#66]: https://github.com/airshiplabs/plaintask/pull/66
 [#77]: https://github.com/airshiplabs/plaintask/pull/77
+[#78]: https://github.com/airshiplabs/plaintask/pull/78

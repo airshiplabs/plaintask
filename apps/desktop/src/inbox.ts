@@ -19,6 +19,10 @@ export const NO_TITLE = 'Give the task a name first.';
 const BOM = '﻿';
 const TASK = /^- \[([ xX])\] (.*)$/;   // at the left margin: an indented line is a subtask, which the app does not show yet
 const FENCE = '---';
+const CODE_OPEN = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;   // CommonMark: a backtick fence's info string has no backtick
+const CODE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;   // the opening fence's character, at least as many of it
+const COMMENT_OPEN = /^ {0,3}<!--/;
+const COMMENT_CLOSE = '-->';
 
 export function parse(text: string): Doc {
   const lines: Line[] = [];
@@ -39,6 +43,21 @@ export function serialize(doc: Doc): string {
   return text;
 }
 
+/** The last line of the fenced code block or HTML comment that `text`, line `at`, opens; -1 if it opens none, or opens one
+    that never closes. A block with no closing line hides nothing, so a stray fence or "<!--" cannot hide the tasks below it,
+    or a task the app adds at the end. A task line never closes a comment, so ticking, renaming or adding a task never
+    changes which lines are tasks, and a task's id stays on its line. */
+function blockEnd(doc: Doc, at: number, text: string): number {
+  const fence = CODE_OPEN.exec(text)?.[1];
+  const closes = fence
+    ? (line: string) => { const close = CODE_CLOSE.exec(line)?.[1]; return !!close && close[0] === fence[0] && close.length >= fence.length; }
+    : COMMENT_OPEN.test(text) ? (line: string) => line.includes(COMMENT_CLOSE) && !TASK.test(line) : null;
+  if (!closes) return -1;
+  if (!fence && text.includes(COMMENT_CLOSE)) return at;
+  for (let i = at + 1; i < doc.length; i++) if (closes(doc[i]!.text)) return i;
+  return -1;
+}
+
 /** A task and where it sits: its line, and the position in that line of the character between the brackets. */
 interface Found extends Task { readonly line: number; readonly mark: number }
 
@@ -52,6 +71,8 @@ function find(doc: Doc): Found[] {
     const text = skip ? raw.slice(skip) : raw;
     if (i === 0 && text.trimEnd() === FENCE) { inFrontMatter = true; continue; }
     if (inFrontMatter) { inFrontMatter = text.trimEnd() !== FENCE; continue; }
+    const end = blockEnd(doc, i, text);
+    if (end !== -1) { i = end; continue; }
     const match = TASK.exec(text);
     const title = match?.[2]?.trim();
     if (!match || !title) continue;

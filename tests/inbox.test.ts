@@ -44,6 +44,46 @@ test('lines inside the front matter at the top of a file are never tasks', () =>
   assert.deepEqual(titles('# Inbox\n---\n- [ ] after a rule, not front matter\n'), ['. after a rule, not front matter']);
 });
 
+test('lines inside a fenced code block or an HTML comment are never tasks, and cannot be ticked', () => {
+  const inbox = '# Inbox\n\n- [ ] Real task\n\nHow to write a task:\n\n```md\n- [ ] example syntax\n```\n\n<!--\n- [ ] commented out\n-->\n';
+  assert.deepEqual(titles(inbox), ['. Real task']);
+  assert.throws(() => toggle(parse(inbox), { title: 'example syntax', occurrence: 0 }), /example syntax/, 'a line in a code block is not a task the app can tick');
+  assert.deepEqual(titles('~~~\n- [ ] in a tilde fence\n~~~\n- [ ] after it\n'), ['. after it']);
+  assert.deepEqual(titles('````\n```\n- [ ] a shorter fence does not close a longer one\n~~~~\n````\n- [ ] after it\n'), ['. after it']);
+  assert.deepEqual(titles('  ```js\n- [ ] in a fence indented up to three spaces\n  ```  \n- [ ] after a closing fence with trailing space\n'), ['. after a closing fence with trailing space']);
+  assert.deepEqual(titles('    ```\n- [ ] four spaces in is not a fence\n'), ['. four spaces in is not a fence']);
+  assert.deepEqual(titles('``` a`b\n- [ ] a backtick fence\'s info string has no backtick, so that line is not a fence\n'), ['. a backtick fence\'s info string has no backtick, so that line is not a fence']);
+  assert.deepEqual(titles('   ```\n- [ ] in a fence indented three spaces\n```\n- [ ] after it\n'), ['. after it']);
+  assert.deepEqual(titles('```\n- [ ] in\n`````\n- [ ] after a longer closing fence\n'), ['. after a longer closing fence']);
+  assert.deepEqual(titles('```\n~~~\n- [ ] a tilde fence does not close a backtick one\n```\n'), []);
+  assert.deepEqual(titles('~~~\n```\n- [ ] a backtick fence does not close a tilde one\n~~~\n'), []);
+  assert.deepEqual(titles('```\n- [ ] in\n``` js\n- [ ] still in: a closing fence has no info string\n```\n'), []);
+  assert.deepEqual(titles('<!-- one line -->\n- [ ] after a one-line comment\n'), ['. after a one-line comment']);
+  assert.deepEqual(titles('<!-- starts\n- [ ] inside\nends -->\n- [ ] after it\n'), ['. after it']);
+  assert.deepEqual(titles('Text <!--\n- [ ] after a comment that does not start the line\n-->\n'), ['. after a comment that does not start the line']);
+  assert.deepEqual(titles('```\n<!--\n```\n- [ ] a comment inside a code block is code\n'), ['. a comment inside a code block is code']);
+  assert.deepEqual(titles('<!--\n```\n-->\n- [ ] a fence inside a comment is comment\n'), ['. a fence inside a comment is comment']);
+});
+
+test('a code block or comment that never closes hides nothing, so a stray fence cannot hide tasks or a task the app adds', () => {
+  assert.deepEqual(titles('```\n- [ ] below a fence that never closes\n'), ['. below a fence that never closes']);
+  assert.deepEqual(titles('````\n- [ ] one\n```\n- [ ] a shorter fence does not close it, so it never closes\n'), ['. one', '. a shorter fence does not close it, so it never closes']);
+  assert.deepEqual(titles('<!--\n- [ ] below a comment that never closes\n'), ['. below a comment that never closes']);
+  for (const text of ['```\n- [ ] One\n', '<!--\n- [ ] One\n']) {
+    assert.deepEqual(titles(serialize(append(parse(text), 'New one'))), ['. One', '. New one'], 'the added task should be listed');
+  }
+});
+
+test('ticking, renaming or adding a task never changes which lines are tasks, so a held id stays on its line', () => {
+  // Undo holds a ticked task's id for 5 s, across rereads; a later edit must not move that id to another line.
+  const doc = parse('<!--\n- [x] Buy milk\n- [ ] Rename me\n- [ ] Buy milk\n');
+  const [held, renameMe] = tasks(doc);
+  const renamed = rename(doc, renameMe!.id, 'a --> b');
+  assert.deepEqual(titles(serialize(renamed)), ['x Buy milk', '. a --> b', '. Buy milk'], 'a task line holding "-->" does not close the comment above it');
+  assert.equal(serialize(toggle(renamed, held!.id)), '<!--\n- [ ] Buy milk\n- [ ] a --> b\n- [ ] Buy milk\n', 'undo should untick the line it ticked');
+  assert.deepEqual(titles(serialize(append(parse('<!--\n- [ ] One\n'), 'x --> y'))), ['. One', '. x --> y'], 'an added task holding "-->" does not close a comment either');
+});
+
 test('ticking a task changes one character of the file and nothing else', () => {
   for (const text of [PROJECT_FILE, PROJECT_FILE.replaceAll('\n', '\r\n'), '﻿- [ ] Order floor tiles due:2026-11-28 #call']) {
     const doc = parse(text);
