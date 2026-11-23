@@ -124,14 +124,16 @@
   }
   function openSheet(host) { var s = host.querySelector('.pt-sheet'); s.inert = false; host.classList.add('is-open'); var f = s.querySelector('input, select, button'); if (f) f.focus({ preventScroll: true }); }
   function closeSheet(host) { host.classList.remove('is-open'); host.querySelector('.pt-sheet').inert = true; }
-  // Shows a toast for 5 s; action runs onAction and closes it. Keeps at most two on screen.
+  // Shows a toast for 5 s; action runs onAction and closes it. Toasts stack, so each action stays reachable for its full 5 s.
   function toast(host, message, action, onAction) {
     var wrap = document.createElement('div'); wrap.innerHTML = Toast({ message: message, action: action });
-    var el = wrap.firstChild; host.appendChild(el);
-    var close = function () { el.classList.add('is-leaving'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 220); };
+    // is-scrolling marks a host whose stack overflows it, so the app can let the wheel reach it
+    var fit = function () { host.classList.toggle('is-scrolling', host.scrollHeight > host.clientHeight); };
+    var el = wrap.firstChild; host.appendChild(el); host.scrollTop = host.scrollHeight; fit();   // a host that scrolls keeps the newest in view
+    el.addEventListener('animationend', fit);   // the rise-in transform overflows the host for a moment
+    var close = function () { el.classList.add('is-leaving'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); fit(); }, 220); };
     if (action) el.querySelector('button').onclick = function () { this.onclick = null; try { if (onAction) onAction(); } finally { close(); } };
     setTimeout(close, 5000);
-    while (host.children.length > 2) host.removeChild(host.firstChild);
     return el;
   }
   function shake(el) { restart(el, 'is-shaking'); }

@@ -127,6 +127,15 @@ export async function openSite(t, site, width, height, { before } = {}) {
       const clip = await evaluate('(r => ({ x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height, scale: 1 }))(document.querySelector(' + JSON.stringify(selector) + ').getBoundingClientRect())');
       return (await send('Page.captureScreenshot', { format: 'png', clip })).data;
     },
+    /** Real mouse input from the browser, as a person's mouse or trackpad sends it: hit-testing and pointer-events apply. */
+    mouse: {
+      wheel: (x, y, deltaY) => send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY }),
+      async click(x, y) {
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+        await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+      },
+    },
     /** the number of pixels that differ visibly between two screenshots of the same box */
     changedPixels: (a, b) => evaluate('(' + changedPixels + ')(' + JSON.stringify(a) + ', ' + JSON.stringify(b) + ')'),
   };

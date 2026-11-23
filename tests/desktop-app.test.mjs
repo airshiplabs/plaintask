@@ -404,6 +404,77 @@ test('two tasks ticked one straight after the other are both saved, and a second
   assert.equal(await page.evaluate('window.__disk.writes.length'), 2, 'the second click on the first row should not save again');
 });
 
+test('three tasks ticked in a row each keep their Undo, and the first can still be undone', { timeout: 60000 }, async t => {
+  const FOUR = '- [ ] Buy milk\n- [ ] Call mum\n- [ ] Water plants\n- [ ] Rake leaves\n';
+  const page = await openApp(t, { inbox: FOUR });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 4)).length, 4, 'precondition: the four tasks did not show');
+  await page.evaluate('(checks => { checks[0].click(); checks[1].click(); checks[2].click(); })(document.querySelectorAll("[data-list] .pt-check"))');
+  assert.deepEqual(await page.evaluate(TOAST), ['Completed: Buy milk', 'Completed: Call mum', 'Completed: Water plants'], 'a third tick should not take the first Undo away');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 1), ['Rake leaves'], 'precondition: the ticked rows did not fold away');
+
+  await page.evaluate(click('[data-toasts] .pt-toast button'));
+  assert.deepEqual(await page.poll(STAYING, rows => rows.length === 2), ['Buy milk', 'Rake leaves'], 'Undo on the first toast should bring back the first task');
+  assert.equal(await page.evaluate('window.__disk.inbox'), FOUR.replace('- [ ] Call mum', '- [x] Call mum').replace('- [ ] Water plants', '- [x] Water plants'));
+});
+
+test('a stack of toasts taller than the window stays inside it, and the oldest Undo can be scrolled to and clicked', { timeout: 60000 }, async t => {
+  const MANY = Array.from({ length: 15 }, (_, i) => '- [ ] Task ' + (i + 1) + '\n').join('');
+  const page = await openApp(t, { inbox: MANY });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 15)).length, 15, 'precondition: the fifteen tasks did not show');
+  await page.evaluate('(checks => { for (let i = 0; i < 14; i++) checks[i].click(); })(document.querySelectorAll("[data-list] .pt-check"))');
+  assert.equal((await page.evaluate(TOAST)).length, 14, 'precondition: fourteen ticks should leave fourteen toasts');
+  assert.deepEqual(await page.evaluate('(h => [h.scrollHeight > h.clientHeight, h.getBoundingClientRect().top >= 0, h.getBoundingClientRect().bottom <= innerHeight])(document.querySelector("[data-toasts]"))'),
+    [true, true, true], 'the stack should scroll inside the window, not run off its top');
+  assert.ok(await page.evaluate('(h => h.lastElementChild.getBoundingClientRect().bottom <= h.getBoundingClientRect().bottom + 1)(document.querySelector("[data-toasts]"))'), 'the newest toast should be in view');
+
+  const reachable = '(b => { b.scrollIntoView({ block: "nearest" }); const r = b.getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === b; })(document.querySelector("[data-toasts] .pt-toast button"))';
+  assert.ok(await page.evaluate(reachable), 'the oldest toast\'s Undo should be on screen and under the pointer once scrolled to');
+  await page.evaluate(click('[data-toasts] .pt-toast button'));
+  assert.ok((await page.poll(STAYING, rows => rows.includes('Task 1'))).includes('Task 1'), 'Undo on the oldest toast should bring back the first task');
+});
+
+test('the mouse wheel scrolls a tall toast stack, and the oldest Undo can then be clicked where it is drawn', { timeout: 60000 }, async t => {
+  const MANY = Array.from({ length: 15 }, (_, i) => '- [ ] Task ' + (i + 1) + '\n').join('');
+  const page = await openApp(t, { inbox: MANY });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 15)).length, 15, 'precondition: the fifteen tasks did not show');
+  await page.evaluate('(checks => { for (let i = 0; i < 14; i++) checks[i].click(); })(document.querySelectorAll("[data-list] .pt-check"))');
+  assert.ok(await page.poll('(h => h.scrollHeight > h.clientHeight && h.scrollTop > 0)(document.querySelector("[data-toasts]"))'), 'precondition: the stack should overflow and show its newest toast');
+  assert.equal((await page.poll(ROWS, rows => rows.length === 1)).length, 1, 'precondition: the ticked rows did not fold away');
+
+  assert.equal(await page.evaluate('(c => { const r = c.getBoundingClientRect(); return c.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })(document.querySelector("[data-list] li:not([data-leaving]) .pt-check"))'), true,
+    'the checkbox of the row left beside the stack should still be under the pointer');
+
+  // the wheel turned over the gap between two toasts, where nothing but the host is drawn
+  const gap = await page.evaluate('(ts => { const a = ts[ts.length - 2].getBoundingClientRect(), b = ts[ts.length - 1].getBoundingClientRect(); return [Math.round(b.x + b.width / 2), Math.round((a.bottom + b.top) / 2)]; })(document.querySelectorAll("[data-toasts] .pt-toast"))');
+  await page.mouse.wheel(gap[0], gap[1], -2000);
+  assert.deepEqual(await page.poll('(h => [h.scrollTop, h.children.length])(document.querySelector("[data-toasts]"))', ([top]) => top === 0), [0, 14],
+    'the wheel should scroll the stack to its oldest toast while all fourteen are still up');
+
+  const undo = await page.evaluate('(r => [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)])(document.querySelector("[data-toasts] .pt-toast button").getBoundingClientRect())');
+  await page.mouse.click(undo[0], undo[1]);
+  assert.ok((await page.poll(STAYING, rows => rows.includes('Task 1'))).includes('Task 1'), 'a click on the oldest Undo should bring back the first task');
+});
+
+test('a tall toast stack with a long title stays inside the window, with every Undo inside it', { timeout: 60000 }, async t => {
+  const long = 'Read https://files.example.com/download/' + 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'.repeat(4);
+  const MANY = '- [ ] ' + long + '\n' + Array.from({ length: 14 }, (_, i) => '- [ ] Task ' + (i + 2) + '\n').join('');
+  const page = await openApp(t, { inbox: MANY });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 15)).length, 15, 'precondition: the fifteen tasks did not show');
+  await page.evaluate('(checks => { for (let i = 0; i < 14; i++) checks[i].click(); })(document.querySelectorAll("[data-list] .pt-check"))');
+  assert.ok(await page.poll('(h => h.classList.contains("is-scrolling"))(document.querySelector("[data-toasts]"))'), 'precondition: the stack should overflow');
+  const edges = await page.evaluate('(h => [h.getBoundingClientRect().left, h.getBoundingClientRect().right, ...[...h.querySelectorAll(".pt-toast button")].map(b => b.getBoundingClientRect().right)])(document.querySelector("[data-toasts]"))');
+  assert.ok(edges.every(x => x >= 0 && x <= 880), `the stack and every Undo should be inside the 880 px window: ${edges.join(', ')}`);
+});
+
+test('with one toast up, a click on the list beside it still reaches the list', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(tick(0));
+  assert.equal((await page.poll(TOAST, toasts => toasts.length === 1)).length, 1, 'precondition: the tick showed no toast');
+  assert.equal(await page.poll('(h => { const r = h.getBoundingClientRect(); return document.elementFromPoint(r.x + 10, r.y + r.height / 2) === h; })(document.querySelector("[data-toasts]"))', hit => !hit), false,
+    'the host beside a single toast should let the pointer through to the list');
+});
+
 test('ticking a task another editor has deleted says so and shows the file as it is', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: THREE });
   assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');

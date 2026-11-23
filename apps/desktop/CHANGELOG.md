@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A task folder that was moved or deleted now says it cannot be found instead of showing Inbox zero ([#80])
 - Saves keep Finder tags and creation date, and refuse a read-only or hard-linked Inbox.md, saying why ([#81])
 - Long task titles wrap in the list, a ticked title is struck on every line, and Undo stays on screen ([#82])
+- Ticking three tasks in a row no longer takes away the first task's Undo ([#83])
 
 ## [0.1.0] - 2026-11-22
 
@@ -44,3 +45,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#80]: https://github.com/airshiplabs/plaintask/pull/80
 [#81]: https://github.com/airshiplabs/plaintask/pull/81
 [#82]: https://github.com/airshiplabs/plaintask/pull/82
+[#83]: https://github.com/airshiplabs/plaintask/pull/83
