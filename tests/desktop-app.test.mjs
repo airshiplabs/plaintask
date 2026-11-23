@@ -417,6 +417,25 @@ test('j, k and the arrow keys move between rows, Space ticks, and the keyboard l
   assert.equal(await page.evaluate(FOCUSED_ROW), 'Call mum', 'with no row below, the keyboard should move to the row above');
 });
 
+const FIELD_FOCUSED = 'document.activeElement === document.querySelector("[data-composer] input")';
+
+test('N pressed while a ticked row folds away keeps the keyboard in the new-task field', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+
+  await page.evaluate(press('j'));
+  await page.evaluate('document.activeElement.click()');   // what Space does on a focused button
+  // N during the fold, which starts 620 ms after the tick and runs 380 ms: the fold notes then that the row had the keyboard
+  assert.equal(await page.poll('document.querySelector("[data-list] li.is-leaving") !== null'), true, 'precondition: the ticked row did not start to fold');
+  await page.evaluate(press('n'));
+  assert.equal(await page.poll(COMPOSER_OPEN), true, 'precondition: N did not open the form');
+  assert.equal(await page.evaluate(FIELD_FOCUSED), true, 'precondition: the task field did not get the keyboard');
+
+  // the fold drops the row and moves the keyboard in the same callback
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Call mum', 'Water plants'], 'precondition: the ticked row did not leave');
+  assert.equal(await page.evaluate(FIELD_FOCUSED), true, 'the fold should not take the keyboard from the task field');
+});
+
 test('two tasks ticked one straight after the other are both saved, and a second click on a ticked row does nothing', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: THREE });
   assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');

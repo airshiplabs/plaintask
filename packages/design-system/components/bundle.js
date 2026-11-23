@@ -105,14 +105,15 @@
   }
   // Moves a row out at once: no tick, no strike. Pair it with a "Moved to Trash" toast and Undo.
   function trash(row, onCommit) { fold(row, onCommit); }
-  // Folds a row to zero height, then calls onCommit. Keyboard focus moves to the neighbouring row.
+  // Folds a row to zero height, then calls onCommit. Keyboard focus moves to the neighbouring row, unless it went elsewhere during the fold.
   function fold(row, onCommit) {
     var li = row.closest('.pt-collapse');
     var hadFocus = li && li.contains(document.activeElement);
     var near = li && (li.nextElementSibling || li.previousElementSibling);
     if (li) li.classList.add('is-leaving');
     setTimeout(function () {
-      if (hadFocus && near) { var c = near.querySelector('.pt-check, .pt-restore'); if (c) c.focus({ preventScroll: true }); }
+      var stillHere = hadFocus && (li.contains(document.activeElement) || document.activeElement === document.body);
+      if (stillHere && near) { var c = near.querySelector('.pt-check, .pt-restore'); if (c) c.focus({ preventScroll: true }); }
       if (onCommit) onCommit();
     }, 380);
   }

@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tasks under a first line of --- with no closing --- show, and adding one no longer shows an error ([#84])
 - A task ticked while another is being renamed no longer shows as open again ([#85])
 - Ticking a task now also shows what another editor changed in the file ([#91])
+- Pressing N while a ticked task folds away keeps the keyboard in the new-task field ([#94])
 
 ## [0.1.0] - 2026-11-22
 
@@ -57,3 +58,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#85]: https://github.com/airshiplabs/plaintask/pull/85
 [#88]: https://github.com/airshiplabs/plaintask/pull/88
 [#91]: https://github.com/airshiplabs/plaintask/pull/91
+[#94]: https://github.com/airshiplabs/plaintask/pull/94
