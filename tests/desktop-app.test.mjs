@@ -13,15 +13,16 @@ const ESCAPES = { '<': '\\u003C', '>': '\\u003E', '/': '\\u002F', '\u2028': '\\u
 const js = value => JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, c => ESCAPES[c]);
 
 /** Opens the app on a folder. `folder` null means none is chosen yet; `inbox` is the text of its Inbox.md ('' for no file);
-    `pick` is the folder the open panel will return; `folderError`, `readError` and `writeError` make finding the folder, reading the file or saving it fail with that message. */
-function openApp(t, { folder = '/Users/test/Tasks', inbox = '', pick = null, folderError = null, readError = null, writeError = null } = {}) {
-  const standIn = `window.__disk = ${js({ folder, inbox, pick, folderError, readError, writeError, writes: [], calls: [], dock: null })};
+    `pick` is the folder the open panel will return; `folderError`, `readError` and `writeError` make finding the folder, reading the file or saving it fail with that message;
+    `gone` true means the folder itself no longer exists, which read_inbox answers with null. */
+function openApp(t, { folder = '/Users/test/Tasks', inbox = '', pick = null, folderError = null, readError = null, writeError = null, gone = false } = {}) {
+  const standIn = `window.__disk = ${js({ folder, inbox, pick, folderError, readError, writeError, gone, writes: [], calls: [], dock: null })};
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
       const disk = window.__disk;
       disk.calls.push(command);
       if (command === 'folder') { if (disk.folderError) throw disk.folderError; return disk.folder; }
-      if (command === 'choose_folder') { if (disk.pick) disk.folder = disk.pick; return disk.pick; }
-      if (command === 'read_inbox') { if (disk.readError) throw disk.readError; return disk.inbox; }
+      if (command === 'choose_folder') { if (disk.pick) { disk.folder = disk.pick; disk.gone = false; } return disk.pick; }
+      if (command === 'read_inbox') { if (disk.readError) throw disk.readError; return disk.gone ? null : disk.inbox; }
       if (command === 'write_inbox') { if (disk.writeError) throw disk.writeError; disk.inbox = args.text; disk.writes.push(args.text); return null; }
       if (command === 'set_badge') { disk.dock = args.count; return null; }
       if (command === 'ready' || command === 'first_frame') return null;
@@ -107,6 +108,47 @@ test('a file that stops being readable takes the count off the Dock icon', { tim
   await page.evaluate('window.__disk.readError = "Inbox.md was moved"; window.dispatchEvent(new Event("focus"))');
   assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open Inbox.md');
   assert.equal(await page.poll(DOCK, n => n === 0), 0);
+});
+
+test('a folder that is moved away says it cannot be found, offers the folder panel and is not shown as Inbox zero', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n- [ ] Call the tiler\n', pick: '/Users/test/Moved' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk', 'Call the tiler'], 'precondition: the list did not show the tasks');
+  await page.evaluate('window.__disk.gone = true; window.dispatchEvent(new Event("focus"))');
+  assert.equal(await page.poll(TEXT('[data-list] strong'), s => s !== null), 'Your task folder cannot be found');
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose folder');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '', 'the sidebar should not count tasks it cannot see');
+  assert.equal(await page.evaluate('document.querySelector("[data-head] .pt-btn")'), null, 'there should be no New task button');
+  await page.evaluate(press('n'));
+  assert.equal(await page.evaluate(COMPOSER_OPEN), false, 'N should not open the form');
+  assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should be written');
+
+  await page.evaluate(click('[data-list] .pt-btn'));
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk', 'Call the tiler'], 'after choosing the folder again the list should show its Inbox');
+});
+
+test('a task added after the folder is gone is not saved and the app says the folder cannot be found', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the list did not show the task');
+  await page.evaluate(press('n'));
+  assert.ok(await page.poll(COMPOSER_OPEN), 'precondition: N did not open the form');
+  await page.evaluate('window.__disk.gone = true');
+  await page.evaluate(type('Call the tiler'));
+  await page.evaluate(RETURN);
+  assert.equal(await page.poll(TEXT('[data-list] strong'), s => s !== null), 'Your task folder cannot be found');
+  assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should be written');
+  assert.equal(await page.evaluate(COMPOSER_OPEN), false, 'the form should close');
+});
+
+test('a folder that goes away between the read and the save shows the folder notice after the failed add', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n', writeError: 'Could not save /Users/test/Tasks/Inbox.md: No such file or directory (os error 2)' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the list did not show the task');
+  await page.evaluate('Object.defineProperty(window.__disk, "gone", { get: () => window.__disk.calls.includes("write_inbox") })');
+  await page.evaluate(press('n'));
+  assert.ok(await page.poll(COMPOSER_OPEN), 'precondition: N did not open the form');
+  await page.evaluate(type('Call the tiler'));
+  await page.evaluate(RETURN);
+  assert.equal(await page.poll(TEXT('[data-list] strong'), s => s !== null), 'Your task folder cannot be found');
+  assert.deepEqual(await page.evaluate(WRITES), [], 'nothing should be written');
 });
 
 test('a file that cannot be read says why and offers another folder', { timeout: 60000 }, async t => {

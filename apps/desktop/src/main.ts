@@ -4,7 +4,7 @@ import { mount } from './app.ts';
 await mount({
   folder: () => invoke<string | null>('folder'),
   chooseFolder: () => invoke<string | null>('choose_folder'),
-  read: () => invoke<string>('read_inbox'),
+  read: () => invoke<string | null>('read_inbox'),
   write: text => invoke<void>('write_inbox', { text }),
   badge: count => invoke<void>('set_badge', { count }),
 });

@@ -8,6 +8,7 @@ Closed source. Plaintask Sync and the agent log are not started.
 
 - No folder chosen: asks for one. The choice is remembered across launches.
 - Shows the open tasks of `Inbox.md` in file order. A folder with no `Inbox.md` shows "Inbox zero" and is not written to.
+- A folder that is gone (moved, renamed, deleted or on a disk that is not connected) shows "Your task folder cannot be found" and "Choose folder", not "Inbox zero".
 - The Dock icon's badge shows the number of open tasks in `Inbox.md`, the same number as the sidebar. No open tasks, no badge.
 - `N` or "New task" opens the form; Return adds the task as the last line of the file; Escape cancels.
 - Clicking a checkbox, or Space on a focused row, ticks the task: one character of the file changes, the row folds away, and a toast offers Undo for 5 s.

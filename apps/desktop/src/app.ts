@@ -6,8 +6,9 @@ export interface Backend {
   folder(): Promise<string | null>;
   /** Asks the person for a folder. Null when they cancel. */
   chooseFolder(): Promise<string | null>;
-  /** The text of Inbox.md, or '' when the folder has none yet. Rejects with the reason it cannot be read. */
-  read(): Promise<string>;
+  /** The text of Inbox.md, '' when the folder has none yet, or null when the folder itself is gone (moved, renamed,
+      deleted or unmounted). Rejects with the reason it cannot be read. */
+  read(): Promise<string | null>;
   /** Replaces the text of Inbox.md. Rejects with the reason it cannot be saved. */
   write(text: string): Promise<void>;
   /** Shows this number on the app's Dock icon. 0 removes it. */
@@ -40,6 +41,9 @@ const COMPOSER =
   '<form class="pt-composer pt-composer--card" novalidate>' + P.Field({ id: 'composer-title', name: 'title', label: 'Task', placeholder: 'e.g. Call the tiler' }) +
   '<p class="pt-error" aria-live="polite"></p><div class="pt-composer__actions">' + P.Button({ label: 'Cancel', variant: 'ghost' }) +
   P.Button({ label: 'Add task', variant: 'primary', type: 'submit' }) + '</div></form>';
+
+const FOLDER_GONE = 'Your task folder cannot be found';
+const folderGone = () => notice(FOLDER_GONE, 'It may have been moved, renamed or deleted, or its disk is not connected.', 'Choose folder');
 
 const EMPTY = P.EmptyState({ title: 'Inbox zero', body: 'New tasks you capture land here first.' });
 
@@ -125,9 +129,10 @@ export async function mount(backend: Backend): Promise<void> {
       `redraw` draws it from the file regardless: the way back after an edit that failed part-way. */
   const load = (redraw = false) => inTurn(async () => {
     chosen = true;
-    let fresh: string;
+    let fresh: string | null;
     try { fresh = await backend.read(); }
     catch (e) { showNotice(notice('Could not open Inbox.md', reason(e), 'Choose another folder')); return; }
+    if (fresh === null) { showNotice(folderGone()); return; }
     if (fresh === text && !redraw) return;
     if (text === null) showHeader(true);
     if (text === null || redraw) list.innerHTML = '';
@@ -137,7 +142,9 @@ export async function mount(backend: Backend): Promise<void> {
   const failed = (e: unknown) => { toast(reason(e)); return load(true); };
 
   const edit = (change: (doc: Doc) => Doc) => inTurn(async () => {
-    const next = change(parse(await backend.read()));
+    const fresh = await backend.read();
+    if (fresh === null) { showNotice(folderGone()); throw new Error(FOLDER_GONE + '.'); }
+    const next = change(parse(fresh));
     const out = serialize(next);
     await backend.write(out);
     text = out;
@@ -187,6 +194,7 @@ export async function mount(backend: Backend): Promise<void> {
       performance.measure('plaintask:add', { start: started });
     } catch (e) {
       toast(reason(e));
+      void load();   // a folder that went away after the read shows its notice
     } finally {
       saving = false;
     }

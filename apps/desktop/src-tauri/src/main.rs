@@ -54,7 +54,7 @@ async fn choose_folder(app: AppHandle, window: tauri::WebviewWindow, state: Stat
 }
 
 #[tauri::command]
-async fn read_inbox(state: State<'_, TaskFolder>) -> Result<String, String> {
+async fn read_inbox(state: State<'_, TaskFolder>) -> Result<Option<String>, String> {
     inbox_file::read(&state.get()?)
 }
 
