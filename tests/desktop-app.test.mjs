@@ -627,6 +627,87 @@ test('a row whose title is being edited cannot be ticked by a click on its check
   assert.deepEqual(await page.evaluate(TOAST), []);
 });
 
+test('ticking another task while a title is open saves both, and the ticked row stays gone', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy oat milk'));
+  // A real click on another checkbox blurs the field on mouse down, before the click itself.
+  await page.evaluate('document.activeElement.blur(); document.querySelectorAll("[data-list] .pt-check")[2].click()');
+  const both = THREE.replace('- [ ] Buy milk', '- [ ] Buy oat milk').replace('- [ ] Water plants', '- [x] Water plants');
+  assert.equal(await page.poll('window.__disk.inbox', inbox => inbox === both), both, 'the file should hold the new title and the tick');
+  assert.deepEqual(await page.evaluate(STAYING), ['Buy oat milk', 'Call mum'], 'the ticked row should not be drawn again as open');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Buy oat milk', 'Call mum'], 'the ticked row should fold away');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.evaluate(DOCK), 2);
+});
+
+/** Holds each save until the test lets it through, so a test can click while one is on its way to the file. */
+const HOLD_WRITES = `(() => { const invoke = window.__TAURI_INTERNALS__.invoke; window.__held = [];
+  window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+    if (command === 'write_inbox') await new Promise(go => window.__held.push(go));
+    return invoke(command, args);
+  }; })()`;
+const HELD = 'window.__held.length';
+const LET_ONE_THROUGH = 'window.__held.shift()()';
+
+test('ticks clicked while a rename and another tick are saving, then a reread, leave the list matching the file', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(HOLD_WRITES);
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy oat milk'));
+  await page.evaluate('document.activeElement.blur(); document.querySelectorAll("[data-list] .pt-check")[2].click()');
+  assert.equal(await page.poll(HELD, n => n === 1), 1, 'precondition: the rename is not on its way to the file');
+  await page.evaluate(LET_ONE_THROUGH);
+  assert.equal(await page.poll(HELD, n => n === 1), 1, 'precondition: the first tick is not on its way to the file');
+  // The rename's save is done and the first tick's is in flight: tick a third row now.
+  await page.evaluate('document.querySelectorAll("[data-list] li:not([data-leaving]) .pt-check")[1].click()');
+  await page.evaluate(LET_ONE_THROUGH);
+  assert.equal(await page.poll(HELD, n => n === 1), 1, 'precondition: the second tick is not on its way to the file');
+  await page.evaluate(LET_ONE_THROUGH);
+  const all = THREE.replace('- [ ] Buy milk', '- [ ] Buy oat milk').replace('- [ ] Call mum', '- [x] Call mum').replace('- [ ] Water plants', '- [x] Water plants');
+  assert.equal(await page.poll('window.__disk.inbox', inbox => inbox === all), all, 'the file should hold the new title and both ticks');
+  assert.deepEqual(await page.poll(STAYING, rows => rows.length === 1), ['Buy oat milk'], 'neither ticked row should be drawn again as open');
+
+  await page.evaluate('window.__disk.inbox += "- [ ] Typed in Vim\\r\\n"; window.dispatchEvent(new Event("focus"))');
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Buy oat milk', 'Typed in Vim'], 'the reread should leave the screen showing the file\'s open tasks');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.evaluate(DOCK), 2);
+});
+
+test('an Undo saved while the file stops being readable leaves the reason on screen, not a list', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(tick(1));
+  assert.equal((await page.poll(WRITES, w => w.length === 1)).length, 1, 'precondition: the tick was not saved');
+  await page.evaluate(HOLD_WRITES);
+  await page.evaluate(click('[data-toasts] .pt-toast button'));
+  assert.equal(await page.poll(HELD, n => n === 1), 1, 'precondition: the Undo is not on its way to the file');
+  // The reread waits in the queue behind the Undo's save, so it fails after the save and before the Undo draws.
+  await page.evaluate('window.__disk.readError = "Could not read /Users/test/Tasks/Inbox.md: Permission denied"; window.dispatchEvent(new Event("focus"))');
+  await page.evaluate(LET_ONE_THROUGH);
+  assert.equal(await page.poll('window.__disk.inbox', inbox => inbox === THREE), THREE, 'the Undo should still be saved');
+  assert.equal(await page.poll(TEXT('[data-list] .pt-empty strong'), s => s !== null), 'Could not open Inbox.md', 'the failed reread should say why');
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(await page.evaluate(TEXT('[data-list] .pt-empty strong')), 'Could not open Inbox.md', 'the Undo should not draw a list over the reason');
+  assert.deepEqual(await page.evaluate(ROWS), []);
+  assert.deepEqual((await page.evaluate(TOAST)).filter(s => !s.startsWith('Completed')), [], 'no error toast should follow');
+});
+
+test('a rename and a tick that cannot be saved say why and leave the list as the file is', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: THREE, writeError: 'Could not save /Users/test/Tasks/Inbox.md: Permission denied' });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 3)).length, 3, 'precondition: the three tasks did not show');
+  await page.evaluate(doubleClick('[data-list] li:nth-child(1) .pt-task__title'));
+  await page.evaluate(renameTo('Buy oat milk'));
+  await page.evaluate('document.activeElement.blur(); document.querySelectorAll("[data-list] .pt-check")[2].click()');
+  assert.equal((await page.poll(TOAST, toasts => toasts.filter(s => s.startsWith('Could not save')).length === 2)).filter(s => s.startsWith('Could not save')).length, 2, 'both failed saves should say why');
+  assert.deepEqual(await page.poll(STAYING, rows => rows.length === 3), ['Buy milk', 'Call mum', 'Water plants']);
+  assert.equal(await page.evaluate('document.querySelectorAll("[data-list] .pt-check")[2].getAttribute("aria-checked")'), 'false');
+  assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '3');
+  assert.equal(await page.evaluate('window.__disk.inbox'), THREE);
+});
+
 test('a right-click shows no web page menu on the window, and the usual menu in the task field', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
   assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the task did not show');

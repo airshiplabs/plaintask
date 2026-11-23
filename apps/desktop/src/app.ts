@@ -141,15 +141,22 @@ export async function mount(backend: Backend): Promise<void> {
   });
   const failed = (e: unknown) => { toast(reason(e)); return load(true); };
 
-  const edit = (change: (doc: Doc) => Doc) => inTurn(async () => {
-    const fresh = await backend.read();
-    if (fresh === null) { showNotice(folderGone()); throw new Error(FOLDER_GONE + '.'); }
-    const next = change(parse(fresh));
-    const out = serialize(next);
-    await backend.write(out);
-    text = out;
-    return next;
-  });
+  /** Saves one change, waits until no edit or read is left in the queue, and resolves with the file as it then is: this
+      change and every one asked for while it waited, such as a tick clicked while a rename was saving. A caller draws that,
+      never a file older than the screen. Null when a read failed meanwhile and the window shows why instead of the list.
+      Rejects when this change cannot be made or saved. */
+  const edit = async (change: (doc: Doc) => Doc): Promise<Doc | null> => {
+    await inTurn(async () => {
+      const fresh = await backend.read();
+      if (fresh === null) { showNotice(folderGone()); throw new Error(FOLDER_GONE + '.'); }
+      const out = serialize(change(parse(fresh)));
+      await backend.write(out);
+      text = out;
+    });
+    let last: Promise<unknown>;
+    do { last = queue; await last; } while (last !== queue);   // a turn queued while waiting is waited for too
+    return text === null ? null : parse(text);
+  };
 
   function openComposer() {
     if (text === null || composing) return;
@@ -184,7 +191,7 @@ export async function mount(backend: Backend): Promise<void> {
       return;
     }
     saving = true;
-    let next: Doc;
+    let next: Doc | null;
     try {
       next = await edit(doc => append(doc, title));
     } catch (e) {
@@ -194,6 +201,7 @@ export async function mount(backend: Backend): Promise<void> {
     } finally {
       saving = false;
     }
+    if (!next) return;   // a reread failed while the add waited: its notice stays
     closeComposer();
     showTasks(openTasks(next));
     // Rows are in file order and leaving rows are left out, so a new line the file's rules do not hide is the last row.
@@ -231,9 +239,10 @@ export async function mount(backend: Backend): Promise<void> {
 
   async function undo(li: HTMLElement, id: TaskId) {
     try {
-      const open = openTasks(await edit(doc => toggle(doc, id)));
+      const saved = await edit(doc => toggle(doc, id));
+      if (!saved) return;
       li.remove();
-      showTasks(open);
+      showTasks(openTasks(saved));
       const back = rows().find(row => row.dataset.row === li.dataset.row);
       if (back) P.enter($('.pt-task', back));
     } catch (e) { await failed(e); }
@@ -268,9 +277,10 @@ export async function mount(backend: Backend): Promise<void> {
       if (!title || title === id.title) { keep(byKey); return; }
       settled = true;
       try {
-        const open = openTasks(await edit(doc => rename(doc, id, title)));
+        const saved = await edit(doc => rename(doc, id, title));
         renaming = null;
-        showTasks(open);
+        if (!saved) return;
+        showTasks(openTasks(saved));
         const renamed = rows()[at];
         if (byKey && renamed) check(renamed).focus({ preventScroll: true });
       } catch (e) {
