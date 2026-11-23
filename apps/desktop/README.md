@@ -44,7 +44,7 @@ Run from the repo root.
 | `build.mjs` | Bundles `src/` and copies the design system's three files into `dist/` |
 | `src-tauri/src/main.rs` | The commands the page calls: `folder`, `choose_folder`, `read_inbox`, `write_inbox`, `ready`, `first_frame` |
 | `src-tauri/src/folder.rs` | Remembers the chosen folder as a security-scoped bookmark |
-| `src-tauri/src/inbox_file.rs` | Reads `Inbox.md`; replaces it through a temporary file and a rename |
+| `src-tauri/src/inbox_file.rs` | Reads `Inbox.md`; replaces it through a temporary file and a rename that keeps its metadata |
 | `scripts/measure-launch.mjs` | Launch timing |
 
 Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the built page in headless Chrome, with the Rust commands replaced by a folder held in memory), and the `#[cfg(test)]` modules in `src-tauri/src/`.
@@ -55,6 +55,8 @@ Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the bui
 - Ticking changes one character. Renaming changes the title's characters and nothing else on the line. Adding appends one line, in the file's own line ending.
 - No id is written to the file. A task is named by its title and its order among tasks with that title.
 - Every change reads the file as it is on disk, applies the change and saves, so lines written by another editor since the last read survive.
+- A save writes a temporary file beside `Inbox.md` and renames it into place, so a reader sees the old text or the new, never half. The new file keeps the old one's permissions. It also keeps the owner, ACL, extended attributes (Finder tags among them) and creation date where the volume supports them; one it cannot keep is logged and does not stop the save. A symlinked `Inbox.md` stays a symlink.
+- A read-only or locked `Inbox.md` is not changed, and neither is one with a hard link: the rename would leave the other name with the old text. The app says which in a toast. A symlink works in place of a hard link.
 
 ## Sandbox
 

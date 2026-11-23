@@ -14,6 +14,9 @@ tauri-plugin-dialog = "2"
 # The security-scoped bookmark that remembers the task folder (src/folder.rs) is a Foundation API.
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL"] }
+# copyfile(3), which carries Inbox.md's extended attributes and ACL onto the file that replaces it (src/inbox_file.rs).
+# Already in the build through tauri; this only names it.
+libc = "0.2"
 
 [profile.release]
 codegen-units = 1
