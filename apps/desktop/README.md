@@ -52,6 +52,7 @@ Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the bui
 ## File rules
 
 - A task is a line that starts at the left margin with `- [ ] ` or `- [x] `, has a title, and is not inside front matter, a fenced code block (```` ``` ```` or `~~~`) or an HTML comment (`<!--` … `-->`) that starts a line. A block counts only once it closes: an unclosed fence or `<!--` hides nothing. A task line never closes a comment. Every other line is kept as it is and never shown: headings, notes, front matter, code blocks, comments, indented subtasks.
+- Front matter is a first line of `---` up to the next line of `---`. A first `---` with no closing `---` is a horizontal rule, and the tasks after it are shown.
 - Ticking changes one character. Renaming changes the title's characters and nothing else on the line. Adding appends one line, in the file's own line ending.
 - No id is written to the file. A task is named by its title and its order among tasks with that title.
 - Every change reads the file as it is on disk, applies the change and saves, so lines written by another editor since the last read survive.

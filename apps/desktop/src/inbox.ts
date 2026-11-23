@@ -61,16 +61,23 @@ function blockEnd(doc: Doc, at: number, text: string): number {
 /** A task and where it sits: its line, and the position in that line of the character between the brackets. */
 interface Found extends Task { readonly line: number; readonly mark: number }
 
+/** The line that closes the front matter, or -1 when the file has none. Front matter is a first line of `---` up to the
+    next line of `---`. A first `---` that is never closed is a horizontal rule, and the lines after it are read as usual. */
+function frontMatterEnd(doc: Doc): number {
+  const first = doc[0]?.text;
+  if (first === undefined || (first.startsWith(BOM) ? first.slice(1) : first).trimEnd() !== FENCE) return -1;
+  return doc.findIndex((line, i) => i > 0 && line.text.trimEnd() === FENCE);
+}
+
 function find(doc: Doc): Found[] {
   const found: Found[] = [];
   const seen = new Map<string, number>();
-  let inFrontMatter = false;
+  const frontMatter = frontMatterEnd(doc);
   for (let i = 0; i < doc.length; i++) {
     const raw = doc[i]!.text;
     const skip = i === 0 && raw.startsWith(BOM) ? 1 : 0;
     const text = skip ? raw.slice(skip) : raw;
-    if (i === 0 && text.trimEnd() === FENCE) { inFrontMatter = true; continue; }
-    if (inFrontMatter) { inFrontMatter = text.trimEnd() !== FENCE; continue; }
+    if (i <= frontMatter) continue;
     const end = blockEnd(doc, i, text);
     if (end !== -1) { i = end; continue; }
     const match = TASK.exec(text);

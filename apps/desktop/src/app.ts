@@ -184,20 +184,28 @@ export async function mount(backend: Backend): Promise<void> {
       return;
     }
     saving = true;
+    let next: Doc;
     try {
-      const open = openTasks(await edit(doc => append(doc, title)));
-      closeComposer();
-      showTasks(open);
-      const added = $('ul', list).lastElementChild!;
-      P.enter($('.pt-task', added));
-      added.scrollIntoView({ block: 'nearest' });
-      performance.measure('plaintask:add', { start: started });
+      next = await edit(doc => append(doc, title));
     } catch (e) {
-      toast(reason(e));
+      toast(reason(e));   // the file could not be read or saved: the reason is for the person
       void load();   // a folder that went away after the read shows its notice
+      return;
     } finally {
       saving = false;
     }
+    closeComposer();
+    showTasks(openTasks(next));
+    // Rows are in file order and leaving rows are left out, so a new line the file's rules do not hide is the last row.
+    const last = rows().at(-1);
+    const added = last && idOf(last.dataset.row!).title === title ? last : undefined;
+    if (added) {
+      P.enter($('.pt-task', added));
+      added.scrollIntoView({ block: 'nearest' });
+    } else {
+      toast('"' + title + '" is saved at the end of Inbox.md, but a line above it hides it.');
+    }
+    performance.measure('plaintask:add', { start: started });
   }
 
   function complete(li: HTMLElement) {

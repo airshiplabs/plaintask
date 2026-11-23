@@ -40,7 +40,7 @@ test('a task is a "- [ ]" or "- [x]" line that starts at the left margin and has
 
 test('lines inside the front matter at the top of a file are never tasks', () => {
   assert.deepEqual(titles(PROJECT_FILE), ['. Order floor tiles due:2026-11-28 #call', 'x Call the tiler', '. Paint the ceiling']);
-  assert.deepEqual(titles('---\n- [ ] in a file whose front matter never closes\n'), [], 'front matter with no closing line runs to the end of the file');
+  assert.deepEqual(titles('---\n- [ ] Buy milk\n- [ ] Call the tiler\n'), ['. Buy milk', '. Call the tiler'], 'a first line of --- with no closing --- is a rule, not front matter');
   assert.deepEqual(titles('# Inbox\n---\n- [ ] after a rule, not front matter\n'), ['. after a rule, not front matter']);
 });
 

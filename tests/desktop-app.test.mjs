@@ -233,6 +233,29 @@ test('the first task added to an empty Inbox replaces the empty state and create
   assert.deepEqual(await page.evaluate(WRITES), ['- [ ] Buy milk\n']);
 });
 
+test('a file whose first line is --- with no closing --- shows its tasks, and a task added to it shows with no toast', { timeout: 60000 }, async t => {
+  const inbox = '---\n- [ ] Buy milk\n- [ ] Call the tiler\n';
+  const page = await openApp(t, { inbox });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk', 'Call the tiler'], 'a --- that never closes is a rule, so the tasks below it are rows');
+  await page.evaluate(press('n'));
+  await page.evaluate(type('New one'));
+  await page.evaluate(RETURN);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 2), ['Buy milk', 'Call the tiler', 'New one']);
+  assert.deepEqual(await page.evaluate(WRITES), [inbox + '- [ ] New one\n']);
+  assert.deepEqual(await page.evaluate('[...document.querySelectorAll("[data-toasts] .pt-toast")].map(e => e.textContent)'), [], 'adding a task that shows needs no toast');
+});
+
+test('a task added with the title of a task already listed plays the enter animation on the new row only', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n- [ ] Call the tiler\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk', 'Call the tiler'], 'precondition: the tasks did not show');
+  await page.evaluate(press('n'));
+  await page.evaluate(type('Buy milk'));
+  await page.evaluate(RETURN);
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 2), ['Buy milk', 'Call the tiler', 'Buy milk']);
+  assert.deepEqual(await page.evaluate('[...document.querySelectorAll("[data-list] .pt-task")].map(e => e.classList.contains("is-entering"))'), [false, false, true]);
+  assert.deepEqual(await page.evaluate('[...document.querySelectorAll("[data-toasts] .pt-toast")].map(e => e.textContent)'), []);
+});
+
 test('Return with no title keeps the form open, says what to do and writes nothing', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
   assert.ok(await page.poll(DRAWN), 'precondition: the page never asked for its window');
