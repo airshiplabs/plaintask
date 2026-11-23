@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A double-click on Undo no longer completes the task again ([#79])
 - A task folder that was moved or deleted now says it cannot be found instead of showing Inbox zero ([#80])
 - Saves keep Finder tags and creation date, and refuse a read-only or hard-linked Inbox.md, saying why ([#81])
+- Long task titles wrap in the list, a ticked title is struck on every line, and Undo stays on screen ([#82])
 
 ## [0.1.0] - 2026-11-22
 
@@ -42,3 +43,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#79]: https://github.com/airshiplabs/plaintask/pull/79
 [#80]: https://github.com/airshiplabs/plaintask/pull/80
 [#81]: https://github.com/airshiplabs/plaintask/pull/81
+[#82]: https://github.com/airshiplabs/plaintask/pull/82

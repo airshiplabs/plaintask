@@ -17,7 +17,7 @@ body input { user-select: text; -webkit-user-select: text; cursor: text; }
 .app__scroll { overflow: auto; min-height: 0; }
 .app__list { padding: 0 var(--space-4) var(--space-6); }
 
-.app__toasts { position: fixed; inset: auto 0 20px 0; z-index: 10; pointer-events: none; }
+.app__toasts { position: fixed; inset: auto var(--space-4) 20px; z-index: 10; pointer-events: none; }
 .app__toasts .pt-toast { pointer-events: auto; }
 
 /* The button under a message that stands in for the list (no folder chosen, a file that cannot be read). */

@@ -346,6 +346,18 @@ test('a double-click on Undo puts the task back once, and the second click does 
   assert.deepEqual(await page.evaluate(STAYING), ['Buy milk', 'Call mum', 'Water plants'], 'the task should stay on screen');
 });
 
+test('a long title with no space wraps inside its row, and its toast fits the window with Undo on screen', { timeout: 60000 }, async t => {
+  const long = 'Read https://files.example.com/download/' + 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'.repeat(4);
+  const page = await openApp(t, { inbox: '- [ ] ' + long + '\n- [ ] Call the tiler\n' });
+  assert.equal((await page.poll(ROWS, rows => rows.length === 2)).length, 2, 'precondition: the two tasks did not show');
+  const [title, row] = await page.evaluate('["[data-list] .pt-task__title", "[data-list] .pt-task"].map(s => document.querySelector(s).getBoundingClientRect().right)');
+  assert.ok(title <= row, `the title should end inside its row: title right ${title}, row right ${row}`);
+
+  await page.evaluate(tick(0));
+  const box = await page.poll('(t => t && [t.getBoundingClientRect().left, t.querySelector("button").getBoundingClientRect().right])(document.querySelector("[data-toasts] .pt-toast"))');
+  assert.ok(box[0] >= 0 && box[1] <= 880, `the toast and its Undo button should be inside the 880 px window: left ${box[0]}, Undo right ${box[1]}`);
+});
+
 test('ticking the last open task shows the empty state', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: '- [x] Done before\n- [ ] Buy milk\n' });
   assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the task did not show');
