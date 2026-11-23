@@ -89,3 +89,4 @@ Preconditions:
 - While the folder is moved away, `control-desktop external --append`, `--from` and `--remove` are refused. Run `control-desktop external --return-folder` first.
 - In the page tier, `fail folder` changes what the page is told at load. It does not change the folder request: a click on `Choose folder` while `fail folder` is on still returns the folder.
 - In the page tier, the snapshot line `dock badge` keeps its last count across `reload`. After a `reload` that ends on a notice it can read `3` while `set_badge 0` shows that the page sent no count since the load.
+- A pick that fails after the panel closes, because the folder choice cannot be stored, shows nothing: the notice stays and no reason is given. Real window only.

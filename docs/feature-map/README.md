@@ -13,7 +13,7 @@ The app has one window, 880 by 620 points at first launch, with no title bar. It
 | Header (top of the main area) | The heading `Inbox`. The button `New task` with the key hint `N`, shown only while an Inbox is on screen. |
 | New-task form (under the header) | Closed until opened. A field labelled `Task` with the placeholder `e.g. Call the tiler`, an error line, and the buttons `Cancel` and `Add task`. |
 | List (rest of the main area) | One of three things: the task rows, the empty state `Inbox zero`, or a notice with one button (`Choose folder` or `Choose another folder`). Each row has a checkbox named `Complete: <title>` and the title. A long title wraps onto more lines. |
-| Toasts (bottom) | Messages that stay for 5 s. At most two show at once. A completed task's toast reads `Completed: <title>` and has the button `Undo`. A message too long for the window is cut short with `…`, and the button stays on screen. |
+| Toasts (bottom) | Messages that stay for 5 s each. They stack, and a stack taller than the window scrolls. A completed task's toast reads `Completed: <title>` and has the button `Undo`. A message too long for the window is cut short with `…`, and the button stays on screen. |
 | Dock icon | A badge with the same number as the sidebar count. No badge at zero. |
 
 ## User flows
@@ -153,7 +153,7 @@ Both tiers:
 - Quote titles, visible strings and key names exactly as the feature file has them.
 - In the page tier, name a target with exactly one of `--role <role> --name <name>`, `--selector <css>` or `--text <exact text>`. `click` and `fill` fail when several elements match; add `--nth <n>`. With `--nth <n>`, `wait` passes when `n` or more match, and `wait --gone` passes when fewer than `n` match.
 - Page-tier checks that a thing is present: `control-desktop wait <target>` exits 0. Checks that a thing is absent: `control-desktop wait <target> --gone --timeout 500` exits 0. Without `--timeout`, a failing `wait` takes 10 s.
-- Page-tier check of row order: `control-desktop wait --selector '[data-list] li:nth-child(<n>)[data-row="<occurrence>:<title>"]'`. Check of the row count: `control-desktop wait --selector '[data-list] li:nth-child(<count + 1>)' --gone --timeout 500`.
+- Page-tier check of row order: `control-desktop wait --selector '[data-list] li:nth-child(<n>)[data-row="<occurrence>:<title>"]'`. Check of the row count: `control-desktop wait --selector '[data-list] li:nth-child(<count + 1>)' --gone --timeout 500`. Both hold while every row is in the page, about 28 rows at the top of the window. For a longer list use `[aria-posinset="<n>"]`, `[aria-setsize="<count>"]` and `control-desktop scroll <pixels>`.
 - Page-tier check of the counts: `control-desktop snapshot | grep -x 'sidebar badge: 3'` and `control-desktop snapshot | grep -x 'dock badge: 3'`. A blank sidebar count prints `sidebar badge: none`. The snapshot line `commands since load` counts each command the page called; `write_inbox 0` means the page saved nothing since it loaded.
 - Page-tier check of the file: `control-desktop file | cmp - <file with the expected bytes>`, or `cmp - <(printf '...')`. `cmp` prints nothing and exits 0 on a match. `control-desktop file` exits 3 when the folder has no `Inbox.md`.
 - A recipe that needs another file writes it under `.verify/` with `printf` and launches with `--inbox <file>`, or replaces the running file with `control-desktop external --from <file>` and then `control-desktop refocus`.

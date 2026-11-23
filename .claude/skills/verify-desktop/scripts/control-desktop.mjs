@@ -37,6 +37,7 @@ const USAGE = `control-desktop.mjs <command> [--run <id>]     run id: letters, d
   type   <text>                  real key events into whatever has the keyboard
   press  <key> [--mod meta,ctrl,alt,shift]
                                  Enter Escape Space Tab Backspace Delete ArrowUp ArrowDown ArrowLeft ArrowRight Home End, or one character
+  scroll <pixels>                real mouse wheel over the middle of the task list; a negative number scrolls up
   wait   <target> [--gone] [--timeout <ms>]   until the target is there (or gone); default 10000 ms
 
   snapshot [--save <name>]       state lines and the accessibility tree; --save writes evidence/<name>.snapshot.txt
@@ -91,6 +92,7 @@ const SPEC = {
   click: { flags: { ...TARGET, double: 'bool', expect: 'value', screenshot: 'value' } },
   fill: { flags: { ...TARGET, value: 'value' } },
   type: { args: 1 },
+  scroll: { args: 1 },
   press: { args: 1, flags: { mod: 'value' } },
   wait: { flags: { ...TARGET, gone: 'bool', timeout: 'value' } },
   snapshot: { flags: { save: 'value' } },
@@ -635,6 +637,16 @@ async function daemon(launchFile) {
       if (flags.remove) { fs.rmSync(p.inbox, { force: true }); return 'removed ' + p.inbox; }
       if (flags.from !== undefined) fs.writeFileSync(p.inbox, Buffer.from(flags.from, 'base64')); else fs.appendFileSync(p.inbox, flags.append + '\n');
       return 'Inbox.md is now ' + fs.statSync(p.inbox).size + ' bytes, sha256 ' + sha(fs.readFileSync(p.inbox)).slice(0, 12) + '. The page has not been told: run `refocus`.';
+    },
+    async scroll(flags, [amount]) {
+      const dy = Number(amount);
+      if (!Number.isFinite(dy) || dy === 0) throw new Refusal('scroll takes a number of pixels other than 0; a negative number scrolls up');
+      const at = await evaluate('(e => { if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, top: e.scrollTop }; })(document.querySelector("[data-scroll]"))');
+      if (!at) throw new Refusal('the page has no task list to scroll');
+      await send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX: 0, deltaY: dy });
+      await settle();
+      const top = await evaluate('document.querySelector("[data-scroll]").scrollTop');
+      return 'turned the wheel ' + dy + ' px over the task list: it moved from ' + Math.round(at.top) + ' to ' + Math.round(top) + ' px';
     },
     async refocus() {
       // Headless Chrome under focus emulation never fires a real window focus event, so these two are made in the page.

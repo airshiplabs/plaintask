@@ -10,7 +10,7 @@ The window shows the open tasks of `Inbox.md` as rows, in file order. The sideba
 
 ## Sub-features
 
-- `inbox-list` shows one row per open task, in file order. A task is a line that starts at the left margin with `- [ ] ` and has a title. It is outside front matter, a closed code block and a closed HTML comment.
+- `inbox-list` lists every open task, in file order. A list that fits near the view has one row in the page per task; a longer list has rows only near the view (`inbox-long-list`). A task is a line that starts at the left margin with `- [ ] ` and has a title. It is outside front matter, a closed code block and a closed HTML comment.
 - `inbox-done-hidden` shows no row for a line that starts with `- [x] ` or `- [X] `.
 - `inbox-not-tasks` shows no row for headings, prose, indented subtasks, lines inside front matter at the top of the file, `* [ ]`, `+ [ ]`, `1. [ ]`, `-[ ]`, `- []`, and a `- [ ] ` line with a blank title.
 - `inbox-front-matter` treats `---` on the first line as the start of front matter. A first `---` with no closing `---` is not front matter: the lines after it are read as usual. A `---` line lower in the file is not front matter.
@@ -46,6 +46,7 @@ stateDiagram-v2
   FolderGone --> Reading: window regains focus
   FolderGone --> Reading: Choose folder, then a pick
 ```
+- `inbox-long-list` keeps only the rows near the view in the page: one view's height above the view and one below it. Scrolling adds the rows that come near and removes the rows that go far. The scroll bar's length and the two counts cover every task. Each row carries its place and the total as `aria-posinset` and `aria-setsize`.
 
 ## How to get to it (user POV)
 
@@ -88,6 +89,7 @@ Preconditions:
 - **`inbox-read-error-stays`.** Action: with the notice `Could not open Inbox.md` showing and the file still not UTF-8, press Tab twice so that the button `Choose another folder` has the keyboard, then make the window regain focus. Result: the same notice shows. The button still has the keyboard. The file was read once more. File: unchanged. Handle: button inside `[data-choose]`; the focused element's accessible name. On the `inbox-read-error` run, run `control-desktop press Tab` twice: the first Tab goes to the sidebar item `Inbox`. Run `control-desktop snapshot | grep -e '^focus' -e '^commands'`. It prints `focus: button "Choose another folder"` and a line with `read_inbox 1`. Run `control-desktop refocus`, then the same `snapshot` command. It prints `focus: button "Choose another folder"` and a line with `read_inbox 2` and `write_inbox 0`. Run `control-desktop wait --text "Could not open Inbox.md"`. It exits 0. `control-desktop file | cmp - .verify/not-utf8.md` prints nothing.
 - **`inbox-no-page-menu`.** Action: right-click a row. Result: no menu opens. Then open the new-task form and right-click in the `Task` field. Result: the text menu opens. File: unchanged. Handle: a row inside `[data-list]`; textbox `Task`. Real window only: follow the checking-desktop-app skill. The page tier has no check for this: `control-desktop` has no right-click, and headless Chrome draws no menu.
 - **`inbox-window-drag`.** Action: press the mouse on the strip at the top of the window and drag. Result: the window moves by the drag distance. File: unchanged. Handle: `[data-tauri-drag-region]`, the strip across the top of the window. Real window only: follow the checking-desktop-app skill. The page tier has no check for this: it has no window to move.
+- **`inbox-long-list`.** Action: launch on a file of 500 open tasks, `Task 001` to `Task 500`, then turn the mouse wheel 4000 px down over the list. Result: at launch the sidebar count and the Dock badge read `500`, the first row is `Task 001`, fewer than 81 rows are in the page and `Task 500` is not. After the wheel, `Task 001` is not in the page and the first row in the page is near `Task 087`. File: unchanged. Handle: `li[data-row]` with `aria-posinset` and `aria-setsize`; `[data-badge="inbox"]`. Run `for i in $(seq -w 1 500); do printf -- '- [ ] Task %s\n' $i; done > .verify/long.md`, then `control-desktop launch --inbox .verify/long.md`. Run `control-desktop snapshot | grep -E '^(sidebar|dock) badge'`. It prints `sidebar badge: 500` and `dock badge: 500`. Run `control-desktop wait --selector '[data-list] li:nth-child(1)[data-row="0:Task 001"][aria-posinset="1"][aria-setsize="500"]'`, `control-desktop wait --selector '[data-list] li:nth-child(81)' --gone --timeout 500` and `control-desktop wait --text "Task 500" --gone --timeout 500`. Each exits 0. Run `control-desktop scroll 4000`. It prints `it moved from 0 to 4000 px`. Run `control-desktop wait --text "Task 001" --gone --timeout 500`. It exits 0. Run `control-desktop snapshot --save inbox-long-list`. Its list starts near `Complete: Task 087`, holds about 42 checkboxes, and has `write_inbox 0`. `control-desktop file | cmp - .verify/long.md` prints nothing.
 
 ## Gotchas
 
@@ -96,13 +98,14 @@ Preconditions:
 - After the notice `Could not open Inbox.md`, fix the file and make the window regain focus: the list comes back. `Choose another folder` and a pick of the folder also reads the file again.
 - A fence or a `<!--` hides task lines only when it closes lower in the file. A `<!--` in the middle of a line starts no comment.
 - A row on screen is not proof of the file. Compare `Inbox.md` byte for byte after each step.
-- A ticked row stays in the list for about 1 s while it folds away. During that time it carries `data-leaving`. Count rows with `li[data-row]:not([data-leaving])`.
+- A ticked row stays in the list for about 1 s while it folds away. During that time it carries `data-leaving`. Count the rows in the page with `li[data-row]:not([data-leaving])`. In a long list that is the rows near the view only; the number of tasks is the sidebar count, or `aria-setsize` on any row. A ticked row that is scrolled away during that second leaves the page at once.
 - The Dock badge exists only on the real Dock icon. The page tests record the number the page asks for. They do not show the badge.
 - A synthetic drag does not move the window. `inbox-window-drag` needs a real mouse.
 - The title in a row is trimmed. A line `- [ ]   Spaced out  ` shows the row `Spaced out`, and the file keeps its spaces.
 - A byte order mark at the start of the file does not hide the first task.
 - The page tier refuses a file that is not UTF-8 with the app's text, but the refusal is the helper's. A launch on the bytes `0xff 0xfe` followed by `- [ ] Buy milk` shows the notice there. Use the real window, or `pnpm --filter @plaintask/desktop check:rust`, to show that the app refuses.
 - After `control-desktop reload` on a notice, the snapshot line `dock badge` keeps the count from before the reload. `set_badge 0` shows that the page sent none since the load.
-- Assert a row's place with `li:nth-child(<n>)[data-row="<n>:<title>"]`, and the row count with `li:nth-child(<count + 1>)` and `--gone`.
+- Assert a row's place with `li:nth-child(<n>)[data-row="<n>:<title>"]`, and the row count with `li:nth-child(<count + 1>)` and `--gone`. This holds while every row is in the page: about 28 rows at the top of an 880 x 620 window. In a longer list, assert the place with `[aria-posinset="<n>"]` and the total with `[aria-setsize="<count>"]`.
 - `wait ... --gone` waits the full default 10 s before it fails. Add `--timeout 500` to a check that a thing is absent.
 - In the page tier, `dock badge: never set` means the page sent no count since the run started. `dock badge: 0` means it sent zero. Both are "no badge".
+- In a long list, `wait --text "<title>"` and `--role checkbox --name "Complete: <title>"` fail for a task that is not near the view. Bring it near with `control-desktop scroll <pixels>` or with `j`.
