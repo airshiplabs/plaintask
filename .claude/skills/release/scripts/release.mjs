@@ -30,6 +30,7 @@ import {
   assessArtifact, CHECKSUMS_NAME, checksumLine, DMG_IDENTIFIER, dmgName, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome,
   parseCodesignDisplay, pickIdentity, PRODUCT_NAME, SIGNATURE, tauriEnv,
 } from './artifact.mjs';
+import { buildNumber } from '../../../../apps/desktop/scripts/build-number.mjs';
 import { appendFooter, sessionFooter } from '../../pr-session-footer/session-footer.mjs';
 import { componentFor, validate as validateChangelog } from '../../keep-a-changelog/changelog.mjs';
 import { CHANGELOG, cutRelease, entriesOf, releaseBody, render, validateAdditions } from './changelog.mjs';
@@ -673,7 +674,7 @@ function buildApp({ version, sha, adhoc, identity: override }, dir) {
   const record = {
     version, sha: headSha(), dirty: !treeIsClean(), signature: adhoc ? SIGNATURE.adhoc : SIGNATURE.developerId, identity: identity?.identity ?? '-', teamName: identity?.teamName ?? null, teamId: identity?.teamId ?? null, dmg: dmgName(version),
     // What apps/desktop/scripts/build-app.mjs writes as the macOS build number (CFBundleVersion).
-    buildNumber: git('describe', '--always', '--dirty', '--abbrev=7'),
+    buildNumber: buildNumber(),
   };
 
   mustStream('pnpm', ['install', '--frozen-lockfile']);

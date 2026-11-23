@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The About window shows the build commit again, not the previous release tag ([#100])
+
 ## [0.2.0] - 2026-11-23
 
 ### Added
@@ -65,3 +69,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#91]: https://github.com/airshiplabs/plaintask/pull/91
 [#93]: https://github.com/airshiplabs/plaintask/pull/93
 [#94]: https://github.com/airshiplabs/plaintask/pull/94
+[#100]: https://github.com/airshiplabs/plaintask/pull/100
