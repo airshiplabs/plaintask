@@ -1,5 +1,3 @@
-// main.ts - starts the app in its Tauri window: mounts the page on the Rust layer's commands (src-tauri/src/main.rs),
-// asks for the window once the page is drawn, and reports the first painted frame.
 import { invoke } from '@tauri-apps/api/core';
 import { mount } from './app.ts';
 
@@ -8,6 +6,7 @@ await mount({
   chooseFolder: () => invoke<string | null>('choose_folder'),
   read: () => invoke<string>('read_inbox'),
   write: text => invoke<void>('write_inbox', { text }),
+  badge: count => invoke<void>('set_badge', { count }),
 });
 
 // The window is hidden until the page is drawn. Frames only run once it is visible:

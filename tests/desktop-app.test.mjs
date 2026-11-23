@@ -1,7 +1,4 @@
-// desktop-app.test.mjs - the desktop app's page (apps/desktop) in a real browser, as a person uses it: the built page,
-// unchanged, with the Rust layer replaced by a folder held in memory. Tauri's page-side API calls
-// window.__TAURI_INTERNALS__.invoke(command, args); the stand-in below answers the same commands src-tauri/src/main.rs does.
-//   node --test "tests/*.test.mjs"     (CHROME=/path/to/chrome for a Chrome somewhere else)
+// Tauri's page-side API calls window.__TAURI_INTERNALS__.invoke(command, args); the stand-in below answers the same commands src-tauri/src/main.rs does.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { before, test } from 'node:test';
@@ -18,7 +15,7 @@ const js = value => JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, c => ESC
 /** Opens the app on a folder. `folder` null means none is chosen yet; `inbox` is the text of its Inbox.md ('' for no file);
     `pick` is the folder the open panel will return; `folderError`, `readError` and `writeError` make finding the folder, reading the file or saving it fail with that message. */
 function openApp(t, { folder = '/Users/test/Tasks', inbox = '', pick = null, folderError = null, readError = null, writeError = null } = {}) {
-  const standIn = `window.__disk = ${js({ folder, inbox, pick, folderError, readError, writeError, writes: [], calls: [] })};
+  const standIn = `window.__disk = ${js({ folder, inbox, pick, folderError, readError, writeError, writes: [], calls: [], dock: null })};
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
       const disk = window.__disk;
       disk.calls.push(command);
@@ -26,6 +23,7 @@ function openApp(t, { folder = '/Users/test/Tasks', inbox = '', pick = null, fol
       if (command === 'choose_folder') { if (disk.pick) disk.folder = disk.pick; return disk.pick; }
       if (command === 'read_inbox') { if (disk.readError) throw disk.readError; return disk.inbox; }
       if (command === 'write_inbox') { if (disk.writeError) throw disk.writeError; disk.inbox = args.text; disk.writes.push(args.text); return null; }
+      if (command === 'set_badge') { disk.dock = args.count; return null; }
       if (command === 'ready' || command === 'first_frame') return null;
       throw new Error('the page asked for a command the app does not have: ' + command);
     } };`;
@@ -36,7 +34,6 @@ const TEXT = selector => `document.querySelector(${js(selector)})?.innerText ?? 
 const ROWS = '[...document.querySelectorAll("[data-list] .pt-task__title")].map(e => e.textContent)';
 const DRAWN = 'window.__disk.calls.includes("ready")';
 const click = selector => `document.querySelector(${js(selector)}).click()`;
-/** a key pressed wherever keyboard focus is */
 const press = key => `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: ${js(key)}, bubbles: true, cancelable: true }))`;
 /** text typed into the new-task field */
 const type = text => `(() => { const field = document.querySelector('[data-composer] input'); field.value = ${js(text)}; field.dispatchEvent(new Event('input', { bubbles: true })); })()`;
@@ -45,6 +42,7 @@ const RETURN = 'document.querySelector("[data-composer] form").requestSubmit()';
 const COMPOSER_OPEN = '(c => !c.inert && !c.classList.contains("is-leaving"))(document.querySelector("[data-composer]"))';
 const FOCUS = '(e => e.tagName + (e.name ? "[" + e.name + "]" : "") + (e.closest("[data-head]") ? " in header" : ""))(document.activeElement)';
 const WRITES = 'window.__disk.writes';
+const DOCK = 'window.__disk.dock';
 
 test('with no folder chosen, the app asks for one and shows the Inbox once it is picked', { timeout: 60000 }, async t => {
   const page = await openApp(t, { folder: null, pick: '/Users/test/Tasks', inbox: '- [ ] Buy milk\n' });
@@ -80,15 +78,17 @@ test('a folder with no Inbox.md shows the empty state and nothing is written to 
   assert.equal(await page.evaluate(TEXT('[data-list] .pt-empty span:last-child')), 'New tasks you capture land here first.');
   assert.equal(await page.evaluate(TEXT('.pt-view-h h2')), 'Inbox');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '', 'an empty Inbox shows no count');
+  assert.ok(!(await page.evaluate(DOCK)), 'an empty Inbox puts no count on the Dock icon');
   assert.deepEqual(await page.evaluate('window.__disk.writes'), [], 'opening a folder must not create or change Inbox.md');
 });
 
-test('the list is the file\'s open tasks, in file order, and the sidebar counts them', { timeout: 60000 }, async t => {
+test('the list is the file\'s open tasks, in file order, and the sidebar and the Dock icon count them', { timeout: 60000 }, async t => {
   const inbox = '---\ntags:\n- [ ] a YAML item, not a task\n---\n# Inbox\n\n- [ ] Order floor tiles due:2026-11-28 #call\n  - [ ] Measure the hallway\n- [x] Call the tiler\n- [ ] <b>Paint</b> & "prime"\n';
   const page = await openApp(t, { inbox });
   assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Order floor tiles due:2026-11-28 #call', '<b>Paint</b> & "prime"'],
     'only open tasks at the left margin are rows; a title is shown as written, never run as HTML');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.poll(DOCK, n => n !== null), 2, 'the Dock icon counts open tasks only, not ticked ones');
   assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-check").getAttribute("aria-label")'), 'Complete: Order floor tiles due:2026-11-28 #call');
 });
 
@@ -98,6 +98,15 @@ test('a task typed into the file in another editor shows when the window is used
   await page.evaluate('window.__disk.inbox = "- [ ] Buy milk\\n- [ ] Typed in Vim\\n"; window.dispatchEvent(new Event("focus"))');
   assert.deepEqual(await page.poll(ROWS, rows => rows.length > 1), ['Buy milk', 'Typed in Vim']);
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.poll(DOCK, n => n === 2), 2, 'the Dock icon should count the task typed in another editor');
+});
+
+test('a file that stops being readable takes the count off the Dock icon', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.equal(await page.poll(DOCK, n => n !== null), 1, 'precondition: the Dock icon did not count the task');
+  await page.evaluate('window.__disk.readError = "Inbox.md was moved"; window.dispatchEvent(new Event("focus"))');
+  assert.equal(await page.poll(TEXT('[data-list] strong')), 'Could not open Inbox.md');
+  assert.equal(await page.poll(DOCK, n => n === 0), 0);
 });
 
 test('a file that cannot be read says why and offers another folder', { timeout: 60000 }, async t => {
@@ -114,8 +123,6 @@ test('a folder choice that cannot be recalled says why and offers the folder pan
   assert.equal(await page.evaluate(TEXT('[data-list] .pt-btn')), 'Choose folder');
   assert.ok(await page.poll(DRAWN), 'the window should still be asked for, so the message can be seen');
 });
-
-// ---- adding a task ----
 
 test('N opens the new-task form, Return adds the task as the last line of the file and the last row', { timeout: 60000 }, async t => {
   const inbox = '# Inbox\n\n- [ ] Buy milk\n- [x] Done already\n';
@@ -136,6 +143,7 @@ test('N opens the new-task form, Return adds the task as the last line of the fi
   assert.equal(await page.evaluate(COMPOSER_OPEN), false, 'the form should close after adding');
   assert.equal(await page.evaluate(FOCUS), 'BUTTON in header', 'the keyboard should return to the New task button');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2');
+  assert.equal(await page.evaluate(DOCK), 2, 'the Dock icon should count the added task');
   assert.equal(await page.evaluate('document.querySelector("[data-list] li:last-child .pt-task").classList.contains("is-entering")'), true, 'the new row should play the enter animation');
 });
 
@@ -211,10 +219,7 @@ test('a task that cannot be saved is not shown as added, and a toast says why', 
   assert.equal(await page.evaluate('document.querySelector("[data-composer] input").value'), 'Order floor tiles');
 });
 
-// ---- ticking a task ----
-
 const tick = n => `document.querySelectorAll("[data-list] li:not([data-leaving]) .pt-check")[${n}].click()`;
-/** the titles of the rows that are staying: a ticked row is still drawn for a second while it folds away */
 const STAYING = '[...document.querySelectorAll("[data-list] li:not([data-leaving]) .pt-task__title")].map(e => e.textContent)';
 const TOAST = '[...document.querySelectorAll("[data-toasts] .pt-toast")].map(e => e.querySelector("span").textContent)';
 const FOCUSED_ROW = 'document.activeElement.closest("[data-list] li")?.querySelector(".pt-task__title").textContent ?? null';
@@ -231,6 +236,7 @@ test('ticking a task changes one character of the file at once, celebrates, fold
   assert.deepEqual(await page.evaluate(TOAST), ['Completed: Call mum']);
   assert.equal(await page.evaluate(TEXT('[data-toasts] .pt-toast button')), 'Undo');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '2', 'the count should drop at once');
+  assert.equal(await page.evaluate(DOCK), 2, 'the Dock icon count should drop at once');
 
   assert.deepEqual(await page.poll(ROWS, rows => rows.length === 2), ['Buy milk', 'Water plants'], 'the ticked row should fold away and leave the list');
 });
@@ -245,6 +251,7 @@ test('Undo puts the task back in its place and restores the file exactly', { tim
   assert.deepEqual(await page.poll(STAYING, rows => rows.length === 3), ['Buy milk', 'Call mum', 'Water plants'], 'the task should be back between its neighbours');
   assert.equal(await page.evaluate('window.__disk.inbox'), THREE, 'after Undo the file should be byte for byte what it was');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '3');
+  assert.equal(await page.evaluate(DOCK), 3, 'Undo should put the Dock icon count back');
   await new Promise(r => setTimeout(r, 1300));   // longer than the hold and the fold: the cancelled fold must not take the row away after all
   assert.deepEqual(await page.evaluate(ROWS), ['Buy milk', 'Call mum', 'Water plants'], 'the restored row should still be there once the cancelled fold would have finished');
   assert.equal(await page.evaluate('document.querySelectorAll("[data-list] .pt-check")[1].getAttribute("aria-checked")'), 'false');
@@ -257,6 +264,7 @@ test('ticking the last open task shows the empty state', { timeout: 60000 }, asy
   assert.equal(await page.poll(TEXT('[data-list] .pt-empty strong')), 'Inbox zero');
   assert.equal(await page.evaluate('window.__disk.inbox'), '- [x] Done before\n- [x] Buy milk\n');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '');
+  assert.equal(await page.evaluate(DOCK), 0, 'no open tasks takes the count off the Dock icon');
 });
 
 test('j, k and the arrow keys move between rows, Space ticks, and the keyboard lands on the next row', { timeout: 60000 }, async t => {
@@ -314,8 +322,6 @@ test('a tick that cannot be saved says why and puts the row back unticked', { ti
   assert.equal(await page.evaluate('document.querySelector("[data-list] .pt-check").getAttribute("aria-checked")'), 'false');
   assert.equal(await page.evaluate(TEXT('[data-badge="inbox"]')), '3');
 });
-
-// ---- renaming a task ----
 
 const RENAME = '[data-list] input.app__rename';
 const renameTo = text => `(() => { const field = document.querySelector(${js(RENAME)}); field.value = ${js(text)}; field.dispatchEvent(new Event('input', { bubbles: true })); })()`;
@@ -426,8 +432,6 @@ test('a row whose title is being edited cannot be ticked by a click on its check
   assert.deepEqual(await page.evaluate(TOAST), []);
 });
 
-// ---- desktop manners ----
-
 test('a right-click shows no web page menu on the window, and the usual menu in the task field', { timeout: 60000 }, async t => {
   const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
   assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the task did not show');
@@ -436,8 +440,6 @@ test('a right-click shows no web page menu on the window, and the usual menu in 
   await page.evaluate(press('n'));
   assert.equal(await page.evaluate(rightClick('[data-composer] input')), true, 'a right-click in the task field should be left alone');
 });
-
-// ---- speed ----
 
 test('in a 10,000-task Inbox, adding a task and ticking one each take under 16 ms from the key press to the list changing', { timeout: 120000, skip: !process.env.PLAINTASK_PERF && 'set PLAINTASK_PERF=1 to run the speed budget' }, async t => {
   const inbox = Array.from({ length: 10000 }, (_, i) => '- [ ] Task number ' + i).join('\n') + '\n';

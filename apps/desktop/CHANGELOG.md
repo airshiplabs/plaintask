@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The Dock icon shows the number of open Inbox tasks ([#66])
+
 ## [0.1.0] - 2026-11-22
 
 ### Added
@@ -24,3 +28,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0
 [#30]: https://github.com/airshiplabs/plaintask/pull/30
 [#44]: https://github.com/airshiplabs/plaintask/pull/44
+[#66]: https://github.com/airshiplabs/plaintask/pull/66

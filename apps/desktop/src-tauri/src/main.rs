@@ -1,4 +1,3 @@
-// Plaintask desktop: a window onto one folder of Markdown task files.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod folder;
@@ -11,10 +10,8 @@ use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-/// How long a loaded page gets to ask for its window before the window is shown anyway.
 const SHOW_ANYWAY_AFTER: Duration = Duration::from_secs(2);
 
-/// The task folder in use, once one is known.
 #[derive(Default)]
 struct TaskFolder(Mutex<Option<PathBuf>>);
 
@@ -36,8 +33,6 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| format!("The app has no data folder: {e}"))
 }
 
-/// The task folder's path, or null when the person has not chosen one (or macOS no longer honours the choice).
-/// PLAINTASK_ROOT names a folder directly, for development and tests.
 #[tauri::command]
 async fn folder(app: AppHandle, state: State<'_, TaskFolder>) -> Result<Option<String>, String> {
     let found = match std::env::var_os("PLAINTASK_ROOT") {
@@ -48,7 +43,6 @@ async fn folder(app: AppHandle, state: State<'_, TaskFolder>) -> Result<Option<S
     Ok(found.map(|path| path.display().to_string()))
 }
 
-/// Asks the person for a folder and remembers it. Null when they cancel.
 #[tauri::command]
 async fn choose_folder(app: AppHandle, window: tauri::WebviewWindow, state: State<'_, TaskFolder>) -> Result<Option<String>, String> {
     let picked = app.dialog().file().set_parent(&window).set_title("Choose a folder for your tasks").set_can_create_directories(true).blocking_pick_folder();
@@ -69,7 +63,6 @@ async fn write_inbox(state: State<'_, TaskFolder>, text: String) -> Result<(), S
     inbox_file::write(&state.get()?, &text)
 }
 
-/// The page calls this when it has drawn itself. The window starts hidden, so no blank frame is ever shown.
 #[tauri::command]
 fn ready(window: tauri::WebviewWindow) -> Result<(), String> {
     if measuring() {
@@ -78,13 +71,17 @@ fn ready(window: tauri::WebviewWindow) -> Result<(), String> {
     window.show().map_err(|e| e.to_string())
 }
 
-/// The page calls this once its first frame is painted. When a launch is being timed, the app quits here.
 #[tauri::command]
 fn first_frame(app: AppHandle) {
     if measuring() {
         println!("first-frame");
         app.exit(0);
     }
+}
+
+#[tauri::command]
+fn set_badge(window: tauri::WebviewWindow, count: u32) -> Result<(), String> {
+    window.set_badge_count((count > 0).then_some(i64::from(count))).map_err(|e| e.to_string())
 }
 
 fn main() {
@@ -104,7 +101,7 @@ fn main() {
                 });
             }
         })
-        .invoke_handler(tauri::generate_handler![folder, choose_folder, read_inbox, write_inbox, ready, first_frame])
+        .invoke_handler(tauri::generate_handler![folder, choose_folder, read_inbox, write_inbox, set_badge, ready, first_frame])
         .run(tauri::generate_context!())
         .expect("Plaintask could not start");
 }
