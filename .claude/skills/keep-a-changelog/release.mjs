@@ -5,8 +5,9 @@
 // Exit 0: released. Exit 1: violations, an empty [Unreleased], or a version not above the newest (file
 // unchanged). Exit 2: usage or read error.
 import { writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { parse, release, render, validate } from './changelog.mjs';
-import { EXIT_VIOLATIONS, listedPath, readText, report, usage } from './cli.mjs';
+import { EXIT_VIOLATIONS, listedPath, readMovedTags, readText, report, usage } from './cli.mjs';
 
 const USAGE = 'usage: release.mjs <changelog> <version> [--date=YYYY-MM-DD]';
 const DATE_OPTION = '--date=';
@@ -31,7 +32,8 @@ async function main(args) {
   } catch (error) {
     return usage(`cannot read ${file}: ${error.code}`);
   }
-  const existing = validate(before, { path });
+  const moved = await readMovedTags(dirname(file));
+  const existing = validate(before, { path, moved });
   if (existing.length > 0) return fail(report(`${path} (before the release)`, existing));
 
   let doc;
@@ -41,8 +43,8 @@ async function main(args) {
     if (!(error instanceof RangeError)) throw error;
     return fail(`release.mjs: ${error.message}`);
   }
-  const after = render(doc, { path });
-  const violations = validate(after, { path });
+  const after = render(doc, { path, moved });
+  const violations = validate(after, { path, moved });
   if (violations.length > 0) return fail(report(`${path} (after the release, not written)`, violations));
   await writeFile(file, after);
 }

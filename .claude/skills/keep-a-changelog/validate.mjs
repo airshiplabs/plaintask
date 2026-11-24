@@ -4,9 +4,10 @@
 //   node validate.mjs <file>...                the named files; each must end with a CHANGELOGS path
 //   node validate.mjs --path=<listed-path> -   stdin, judged as that listed path (the pre-commit hook)
 // Exit 0: every file conforms. Exit 1: violations or a missing listed file. Exit 2: usage or read error.
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHANGELOGS, validate } from './changelog.mjs';
-import { EXIT_USAGE, EXIT_VIOLATIONS, listedPath, readText, report, usage } from './cli.mjs';
+import { EXIT_USAGE, EXIT_VIOLATIONS, listedPath, readMovedTags, readText, report, usage } from './cli.mjs';
 
 const USAGE = 'usage: validate.mjs [<file>... | --path=<listed-path> -]';
 const PATH_OPTION = '--path=';
@@ -47,7 +48,8 @@ async function main(args) {
       failed = true;
       continue;
     }
-    const violations = validate(text, { path });
+    const moved = await readMovedTags(source === '-' ? dirname(`${repoRoot}${path}`) : dirname(source));
+    const violations = validate(text, { path, moved });
     if (violations.length === 0) continue;
     console.error(report(path, violations));
     failed = true;

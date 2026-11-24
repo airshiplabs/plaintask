@@ -15,6 +15,14 @@ export const MAX_ENTRY_CHARS = 100;
 
 export const REPO_URL = 'https://github.com/airshiplabs/plaintask';
 
+/** The file, next to a changelog, that names releases tagged other than `<tagPrefix><version>`: { "<version>": "<tag>" }. */
+export const MOVED_TAGS_FILE = 'moved-tags.json';
+
+/** The git tag of a component's version: its name in `moved`, else `<tagPrefix><version>`. */
+export function tagName(tagPrefix, version, moved = {}) {
+  return moved[version] ?? `${tagPrefix}${version}`;
+}
+
 const HEADER = Object.freeze([
   '# Changelog',
   '',
@@ -291,9 +299,9 @@ function headingText(release) {
 }
 
 /** The link lines a document implies, in FORMAT.md order. */
-export function expectedLinks(doc, path) {
+export function expectedLinks(doc, path, moved = {}) {
   const { dir, tagPrefix } = componentFor(path);
-  const tag = (version) => `${tagPrefix}${version}`;
+  const tag = (version) => tagName(tagPrefix, version, moved);
   const versions = doc.releases.filter((r) => r.version !== null).map((r) => r.version);
   const lines = [
     versions.length === 0
@@ -317,7 +325,7 @@ export function expectedLinks(doc, path) {
 }
 
 /** The canonical text of a document. render(parse(x).doc, { path }) === x for every valid x. */
-export function render(doc, { path }) {
+export function render(doc, { path, moved = {} }) {
   const blocks = [[HEADER[0]], [HEADER[2]], [HEADER[4], HEADER[5]]];
   for (const release of doc.releases) {
     blocks.push([headingText(release)]);
@@ -327,26 +335,27 @@ export function render(doc, { path }) {
       if (section.entries.length > 0) blocks.push(section.entries.map((e) => `- ${e.text} ([${e.ref}])`));
     }
   }
-  blocks.push(expectedLinks(doc, path));
+  blocks.push(expectedLinks(doc, path, moved));
   return `${blocks.map((block) => block.join('\n')).join('\n\n')}\n`;
 }
 
 /**
  * Validate one changelog against FORMAT.md. `path` is the file's path from the repo root, one of CHANGELOGS;
  * it sets the component directory and tag prefix of the expected links. Throws a RangeError on another path.
+ * `moved` maps a version to its tag when that tag is not `<tagPrefix><version>` (MOVED_TAGS_FILE).
  * Returns [] on pass; otherwise violations in line order, each { rule, line, text, message }.
  * The links and whitespace rules run only when the file has no other violation.
  * @param {string} text
- * @param {{ path: string }} options
+ * @param {{ path: string, moved?: Record<string, string> }} options
  */
-export function validate(text, { path }) {
+export function validate(text, { path, moved = {} }) {
   componentFor(path);
   const { doc, violations } = parse(text);
   if (violations.length > 0) return violations.sort((a, b) => a.line - b.line);
 
   const lines = text.split('\n');
   const lineCount = lines.at(-1) === '' ? lines.length - 1 : lines.length;
-  const expected = expectedLinks(doc, path);
+  const expected = expectedLinks(doc, path, moved);
   for (let i = 0; i < Math.max(expected.length, doc.links.length); i++) {
     const actual = doc.links[i];
     if (actual && `[${actual.label}]: ${actual.url}` === expected[i]) continue;
@@ -355,7 +364,7 @@ export function validate(text, { path }) {
     return [violation(RULES.links, line, actual ? lines[line - 1] : '', message)];
   }
 
-  const canonical = render(doc, { path }).split('\n');
+  const canonical = render(doc, { path, moved }).split('\n');
   for (let i = 0; i < Math.max(canonical.length, lines.length); i++) {
     if (canonical[i] !== lines[i]) {
       const line = Math.min(i + 1, lineCount);

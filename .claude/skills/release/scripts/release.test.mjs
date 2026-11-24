@@ -567,3 +567,16 @@ test('stage and publish refuse a verified build with no qa.json, or a qa.json of
   repo.write(`dist/release/${VERSION}/qa.json`, JSON.stringify({ ok: true, verdict: 'ready', sha256: 'other', blockers: [], issues: [] }));
   assert.match(repo.cli(['stage', '--version', VERSION]).stderr, /has no qa\.json for sha256/);
 });
+
+test('plan reads a tag named in moved-tags.json as the release it names', (t) => {
+  const repo = makeRepo(t);
+  repo.commit({ 'apps/desktop/moved-tags.json': '{ "0.1.0": "desktop-v0.1.0-moved" }\n' }, 'chore(desktop): name the moved tag (#2)');
+  repo.git('tag', 'desktop-v0.1.0-moved');
+  repo.git('push', '--quiet', 'origin', 'desktop-v0.1.0-moved');
+  repo.commit({ 'apps/desktop/src/app.ts': 'x' }, 'fix(desktop): keep the folder (#4)');
+  const fixes = join(repo.dir, 'fixes.json');
+  writeFileSync(fixes, JSON.stringify(FIX));
+  const plan = repo.cli(['plan', '--entries', fixes]);
+  assert.equal(plan.status, 0, plan.stderr);
+  assert.deepEqual({ last: plan.json.last, next: plan.json.next, subjects: plan.json.commits.map((c) => c.subject) }, { last: '0.1.0', next: '0.1.1', subjects: ['fix(desktop): keep the folder (#4)'] });
+});

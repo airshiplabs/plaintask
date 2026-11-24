@@ -80,6 +80,7 @@ async function stage(tmp, env, path, text) {
 
 test('pre-commit passes a valid changelog and commits with none', async (t) => {
   const { tmp, env } = await makeRepo(t);
+  await stage(tmp, env, 'apps/desktop/moved-tags.json', readFileSync(repoPath('apps/desktop/moved-tags.json'), 'utf8'));
   await stage(tmp, env, CHANGELOG, VALID);
   const valid = git(tmp, ['commit', '-m', 'docs: add the desktop changelog'], env);
   assert.equal(valid.status, 0, valid.stderr);

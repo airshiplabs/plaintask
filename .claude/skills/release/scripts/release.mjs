@@ -34,7 +34,7 @@ import {
   parseCodesignDisplay, pickIdentity, PRODUCT_NAME, SIGNATURE, tauriEnv,
 } from './artifact.mjs';
 import { appendFooter, sessionFooter } from '../../pr-session-footer/session-footer.mjs';
-import { componentFor, validate as validateChangelog } from '../../keep-a-changelog/changelog.mjs';
+import { componentFor, MOVED_TAGS_FILE, tagName, validate as validateChangelog } from '../../keep-a-changelog/changelog.mjs';
 import { CHANGELOG, cutRelease, entriesOf, releaseBody, render, validateAdditions } from './changelog.mjs';
 import {
   classifyCommit, compareVersions, derivePhase, INITIAL_VERSION, latestVersionTag, MANIFESTS, NEXT_TASK, nextTask, nextVersion, parseVersion,
@@ -49,7 +49,11 @@ const NOTARY_PROFILE = 'plaintask-notary';
 const RELEASE_PATHS = Object.freeze(['apps/desktop', 'packages/design-system']);
 /** The desktop component's tag prefix, from the keep-a-changelog skill: version 0.1.0 is the tag desktop-v0.1.0. */
 const TAG_PREFIX = componentFor(CHANGELOG).tagPrefix;
-const tagFor = (version) => `${TAG_PREFIX}${version}`;
+/** The desktop releases tagged other than desktop-v<version>, from MOVED_TAGS_FILE next to the changelog: { "<version>": "<tag>" }. */
+const MOVED_TAGS_PATH = `${componentFor(CHANGELOG).dir}/${MOVED_TAGS_FILE}`;
+const parseMoved = (text) => (text === null ? {} : JSON.parse(text));
+const movedTags = () => parseMoved(readWorktree(MOVED_TAGS_PATH));
+const tagFor = (version) => tagName(TAG_PREFIX, version, movedTags());
 // The release branch, in the branch-naming skill's <type>--<description> form: no "/" and no "." (0.1.0 is 0-1-0).
 const BRANCH_PREFIX = `chore--release-${TAG_PREFIX}`;
 const branchFor = (version) => `${BRANCH_PREFIX}${version.replaceAll('.', '-')}`;
@@ -186,7 +190,11 @@ function requireCleanTree() {
   else fail('the working tree is not clean: commit or remove the changes, then run again', SEE.skill);
 }
 
-const lastReleaseVersion = () => latestVersionTag(git('tag', '--list', `${TAG_PREFIX}*`, '--merged', BASE).split('\n').filter(Boolean), TAG_PREFIX);
+function lastReleaseVersion() {
+  const versionOf = Object.fromEntries(Object.entries(movedTags()).map(([version, tag]) => [tag, `${TAG_PREFIX}${version}`]));
+  const tags = git('tag', '--list', `${TAG_PREFIX}*`, '--merged', BASE).split('\n').filter(Boolean);
+  return latestVersionTag(tags.map((tag) => versionOf[tag] ?? tag), TAG_PREFIX);
+}
 
 /** The commit a tag on origin points at (annotated tags peeled), or null when origin has no such tag. */
 function remoteTagSha(tag) {
@@ -298,7 +306,7 @@ function cutText(version, additions, date) {
   const current = readText(inRoot(CHANGELOG));
   if (current === null) fail(`${CHANGELOG} does not exist`, SEE.rules);
   try {
-    return cutRelease(current, { version, date: date ?? today(), additions });
+    return cutRelease(current, { version, date: date ?? today(), additions, moved: movedTags() });
   } catch (error) {
     if (!(error instanceof RangeError)) throw error;
     return fail(`cannot cut ${version}: ${error.message}`, SEE.rules);
@@ -324,7 +332,7 @@ function releaseProblems(version, read) {
     .map((manifest) => `${manifest.path} records ${manifest.version}, expected ${version}`);
   const changelog = read(CHANGELOG);
   if (changelog === null) return [...problems, `${CHANGELOG} does not exist`];
-  for (const { rule, line, text, message } of validateChangelog(changelog, { path: CHANGELOG })) problems.push(`${CHANGELOG} line ${line}: ${text}\n  ${rule}: ${message}`);
+  for (const { rule, line, text, message } of validateChangelog(changelog, { path: CHANGELOG, moved: parseMoved(read(MOVED_TAGS_PATH)) })) problems.push(`${CHANGELOG} line ${line}: ${text}\n  ${rule}: ${message}`);
   if (releaseBody(changelog, version) === null) problems.push(`${CHANGELOG} has no "## [${version}]" release`);
   return problems;
 }

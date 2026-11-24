@@ -48,10 +48,11 @@ const sameEntry = (a) => (b) => a.type === b.type && a.text === b.text && a.ref 
  * Throws RangeError, naming each rule, when the text fails the format before or after, when an addition is
  * already under [Unreleased], when there is nothing to release, or when `version` is not above the newest release.
  * @param {string} text
- * @param {{ version: string, date: string, additions: { type: string, ref: string, text: string }[] }} cut
+ * `moved` maps a version to its tag when that tag is not desktop-v<version> (keep-a-changelog's MOVED_TAGS_FILE).
+ * @param {{ version: string, date: string, additions: { type: string, ref: string, text: string }[], moved?: Record<string, string> }} cut
  */
-export function cutRelease(text, { version, date, additions }) {
-  requireValid(text, 'before the release');
+export function cutRelease(text, { version, date, additions, moved = {} }) {
+  requireValid(text, 'before the release', moved);
   const { doc } = parse(text);
   if (doc.releases.some((item) => item.version === version)) {
     const released = entriesOf(text, version);
@@ -62,13 +63,13 @@ export function cutRelease(text, { version, date, additions }) {
   const repeated = additions.find((entry) => unreleased.some(sameEntry(entry)));
   if (repeated) throw new RangeError(`[Unreleased] already has the entry ${JSON.stringify(repeated.text)}; remove it from the entries file`);
 
-  const cut = renderChangelog(release(additions.reduce(addEntry, doc), { version, date }), { path: CHANGELOG });
-  requireValid(cut, 'after the release');
+  const cut = renderChangelog(release(additions.reduce(addEntry, doc), { version, date }), { path: CHANGELOG, moved });
+  requireValid(cut, 'after the release', moved);
   return cut;
 }
 
-function requireValid(text, when) {
-  const violations = validate(text, { path: CHANGELOG });
+function requireValid(text, when, moved) {
+  const violations = validate(text, { path: CHANGELOG, moved });
   if (violations.length === 0) return;
   const lines = violations.map(({ rule, line, text: found, message }) => `  line ${line}: ${found}\n  ${rule}: ${message}`);
   throw new RangeError(`${CHANGELOG} does not match the changelog format ${when}:\n${lines.join('\n')}`);

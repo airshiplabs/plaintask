@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { addEntry, CHANGELOGS, compareSemver, MAX_ENTRY_CHARS, parse, release, render, validate } from './changelog.mjs';
+import { addEntry, CHANGELOGS, compareSemver, MAX_ENTRY_CHARS, parse, release, render, tagName, validate } from './changelog.mjs';
 
 const PATH = 'apps/desktop/CHANGELOG.md';
 const REPO = 'https://github.com/airshiplabs/plaintask';
@@ -319,11 +319,14 @@ test('validate.mjs exit codes and output', async () => {
     assert.equal(unlisted.status, 2);
   });
 
-  const stdin = run('validate.mjs', ['--path=' + PATH, '-'], replace(FULL, '### Fixed', '### Fixes'));
+  // The repo's apps/desktop/moved-tags.json applies to stdin judged as PATH, so these use a changelog with no such file.
+  const MOBILE = 'apps/mobile/CHANGELOG.md';
+  const mobile = FULL.replaceAll('apps/desktop', 'apps/mobile').replaceAll('desktop-v', 'mobile-v');
+  const stdin = run('validate.mjs', ['--path=' + MOBILE, '-'], replace(mobile, '### Fixed', '### Fixes'));
   assert.equal(stdin.status, 1);
   assert.match(stdin.stderr, /section-name/);
   assert.match(stdin.stderr, /line 10: ### Fixes/);
-  assert.equal(run('validate.mjs', ['--path=' + PATH, '-'], FULL).status, 0);
+  assert.equal(run('validate.mjs', ['--path=' + MOBILE, '-'], mobile).status, 0);
   assert.equal(run('validate.mjs', ['--path=packages/x/CHANGELOG.md', '-'], FULL).status, 2);
   assert.equal(run('validate.mjs', ['--path=' + PATH]).status, 2);
   assert.equal(run('validate.mjs', ['--bogus']).status, 2);
@@ -376,5 +379,28 @@ test('release.mjs releases and refuses bad versions', async () => {
     assert.equal(empty.status, 1);
     assert.match(empty.stderr, /no entries/);
     assert.equal(run('release.mjs', [file]).status, 2);
+  });
+});
+
+test('tagName uses a moved tag for its version and <prefix><version> otherwise', () => {
+  const moved = { '0.2.1': 'desktop-v0.2.1-moved' };
+  assert.equal(tagName('desktop-v', '0.2.1', moved), 'desktop-v0.2.1-moved');
+  assert.equal(tagName('desktop-v', '0.3.0', moved), 'desktop-v0.3.0');
+  assert.equal(tagName('desktop-v', '0.2.1'), 'desktop-v0.2.1');
+});
+
+test('the links name a moved tag, and validate.mjs reads it from moved-tags.json next to the changelog', async () => {
+  const moved = { '0.1.0': 'desktop-v0.1.0-moved' };
+  const text = replace(replace(FULL, 'compare/desktop-v0.1.0...desktop-v0.2.0', 'compare/desktop-v0.1.0-moved...desktop-v0.2.0'), 'releases/tag/desktop-v0.1.0', 'releases/tag/desktop-v0.1.0-moved');
+  assert.deepEqual(validate(text, { path: PATH, moved }), []);
+  assert.equal(validate(text, { path: PATH })[0].rule, 'links');
+  assert.equal(render(parse(text).doc, { path: PATH, moved }), text);
+
+  await withRepo({ [PATH]: text, 'apps/desktop/moved-tags.json': JSON.stringify(moved) }, async (root) => {
+    const ok = run('validate.mjs', [join(root, PATH)]);
+    assert.deepEqual([ok.status, ok.stderr], [0, '']);
+  });
+  await withRepo({ [PATH]: text }, async (root) => {
+    assert.equal(run('validate.mjs', [join(root, PATH)]).status, 1);
   });
 });

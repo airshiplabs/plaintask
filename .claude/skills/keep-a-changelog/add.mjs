@@ -6,8 +6,9 @@
 // The file is written only when the result passes FORMAT.md; it must pass before the edit too.
 // Exit 0: added. Exit 1: violations, before or after the edit (file unchanged). Exit 2: usage or read error.
 import { writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { addEntry, parse, render, TYPES, validate } from './changelog.mjs';
-import { EXIT_VIOLATIONS, listedPath, readText, report, usage } from './cli.mjs';
+import { EXIT_VIOLATIONS, listedPath, readMovedTags, readText, report, usage } from './cli.mjs';
 
 const USAGE = `usage: add.mjs <changelog> <${TYPES.join('|')}> <#pr|sha> <text>`;
 
@@ -24,15 +25,16 @@ async function main(args) {
   } catch (error) {
     return usage(`cannot read ${file}: ${error.code}`);
   }
-  const existing = validate(before, { path });
+  const moved = await readMovedTags(dirname(file));
+  const existing = validate(before, { path, moved });
   if (existing.length > 0) {
     console.error(report(`${path} (before the edit)`, existing));
     process.exitCode = EXIT_VIOLATIONS;
     return;
   }
 
-  const after = render(addEntry(parse(before).doc, { type, ref, text }), { path });
-  const violations = validate(after, { path });
+  const after = render(addEntry(parse(before).doc, { type, ref, text }), { path, moved });
+  const violations = validate(after, { path, moved });
   if (violations.length > 0) {
     console.error(report(`${path} (after the edit, not written)`, violations));
     process.exitCode = EXIT_VIOLATIONS;
