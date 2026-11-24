@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The app checks for updates daily and installs a new version in place when you choose Update ([#103])
-- About Plaintask shows the version and checks for updates ([#103])
+- The app checks for updates daily and installs a new version in place when you choose Update ([#2])
+- About Plaintask shows the version and checks for updates ([#2])
 
 ## [0.2.1] - 2026-11-23
 
@@ -61,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.1]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.0...desktop-v0.2.1
 [0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0...desktop-v0.2.0
 [0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0
+[#2]: https://github.com/airshiplabs/plaintask/pull/2
 [#30]: https://github.com/airshiplabs/plaintask/pull/30
 [#44]: https://github.com/airshiplabs/plaintask/pull/44
 [#66]: https://github.com/airshiplabs/plaintask/pull/66
@@ -78,4 +79,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#93]: https://github.com/airshiplabs/plaintask/pull/93
 [#94]: https://github.com/airshiplabs/plaintask/pull/94
 [#100]: https://github.com/airshiplabs/plaintask/pull/100
-[#103]: https://github.com/airshiplabs/plaintask/pull/103
