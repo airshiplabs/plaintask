@@ -1,5 +1,5 @@
-// browser.mjs - one site in headless Chrome for a node:test test, driven over the DevTools protocol with
-// Node's own WebSocket and fetch (no dependencies). Same Chrome and software WebGL as scripts/make-stills.mjs.
+// browser.mjs - one page in headless Chrome for a node:test test, driven over the DevTools protocol with
+// Node's own WebSocket and fetch (no dependencies).
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { access, mkdtemp, rm } from 'node:fs/promises';
@@ -48,7 +48,7 @@ const stop = async child => {
   await once(child, 'exit');
 };
 
-/** Serves one site (app | sh | ai, or a folder of the repo such as apps/desktop/dist) on a spare port and opens it
+/** Serves one folder of the repo (such as apps/desktop/dist) on a spare port and opens it
     in a width x height viewport. `before` is JavaScript that runs in the page ahead of the page's own scripts.
     Everything started here is stopped and removed when the test ends, whatever its outcome. */
 export async function openSite(t, site, width, height, { before } = {}) {

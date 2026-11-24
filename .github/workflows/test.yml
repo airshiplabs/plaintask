@@ -1,0 +1,35 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Format only: a pull request never has to edit a changelog (Keep a Changelog 2.0.0).
+      - run: node .claude/skills/keep-a-changelog/validate.mjs
+      - run: pnpm --filter @plaintask/desktop typecheck
+      # TLC, for the TLA+ specs in specs/: the model checks here, and the tests that compare the code with them.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: pnpm check:specs
+      - run: pnpm test
+        env:
+          CHROME: /usr/bin/google-chrome # tests/browser.mjs defaults to the macOS path

@@ -10,10 +10,6 @@ The exact format of every `CHANGELOG.md` in this repo. It is a strict subset of 
 |---|---|
 | `apps/desktop/CHANGELOG.md` | `desktop-v` |
 | `apps/mobile/CHANGELOG.md` | `mobile-v` |
-| `apps/sync/CHANGELOG.md` | `sync-v` |
-| `sites/plaintask.ai/CHANGELOG.md` | `plaintask.ai-v` |
-| `sites/plaintask.app/CHANGELOG.md` | `plaintask.app-v` |
-| `sites/plaintask.sh/CHANGELOG.md` | `plaintask.sh-v` |
 
 - The tag prefix is the directory's last segment plus `-v`. Version `0.1.0` of the desktop app is the git tag `desktop-v0.1.0`.
 - `packages/*` have no changelog. They are internal, and the apps' changelogs describe their user-facing effects.

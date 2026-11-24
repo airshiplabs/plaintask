@@ -1,0 +1,15 @@
+{
+  "name": "plaintask",
+  "private": true,
+  "description": "Plaintask: a task app that keeps your tasks in plain Markdown files",
+  "license": "MIT",
+  "scripts": {
+    "prepare": "hooks=\"$(git rev-parse --git-common-dir)/hooks\" && mkdir -p \"$hooks\" && for hook in commit-msg pre-commit; do cp \".githooks/$hook\" \"$hooks/$hook\" && chmod 755 \"$hooks/$hook\" || exit 1; done",
+    "check:specs": "node specs/check.mjs",
+    "test:perf": "PLAINTASK_PERF=1 node --experimental-strip-types --test --test-concurrency=1 --test-name-pattern=10,000 tests/inbox.test.ts tests/desktop-app.test.mjs",
+    "test": "node --experimental-strip-types --test .claude/skills/conventional-commits/*.test.mjs .claude/skills/branch-naming/*.test.mjs .claude/skills/keep-a-changelog/*.test.mjs .claude/skills/pr-session-footer/*.test.mjs .claude/skills/release/scripts/*.test.mjs \"tests/*.test.mjs\" \"tests/*.test.ts\""
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

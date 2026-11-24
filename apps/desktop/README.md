@@ -2,7 +2,7 @@
 
 The desktop app, built with Tauri 2: one list, Inbox, backed by `Inbox.md` in a folder the person picks. A Rust layer owns the folder and the file; a page draws the list with the design system's own `tokens.css`, `bundle.css` and `bundle.js` (`packages/design-system`). macOS first: the sandbox entitlements, the folder bookmark and the window's traffic lights are the macOS-specific parts.
 
-Closed source. Plaintask Sync and the agent log are not started.
+Open source under the MIT License. Plaintask Sync and the agent log are not started.
 
 ## What it does
 

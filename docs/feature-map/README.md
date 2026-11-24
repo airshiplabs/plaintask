@@ -198,9 +198,7 @@ Both tiers:
 
 These exist in the repo and have no entry here.
 
-- `sites/plaintask.ai`, `sites/plaintask.app` and `sites/plaintask.sh`: the three marketing sites.
 - `apps/mobile`: not started. The folder holds a README and a changelog.
-- `apps/sync`: not started. The folder holds a README and a changelog.
 - `packages/design-system`: the component previews. The desktop app uses its components; the previews are not part of the app.
 - Developer commands in `apps/desktop/README.md`: launch timing (`measure`), the speed budgets and the release build.
 

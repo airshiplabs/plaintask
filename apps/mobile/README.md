@@ -1,5 +1,5 @@
-# Plaintask Pro: mobile
+# Plaintask: mobile
 
-The paid mobile app: the open-source Plaintask app plus Plaintask Sync.
+The Plaintask mobile app.
 
-Closed source. Not started: this folder reserves the place in the monorepo. The open-source app, CLI and MCP server are in the public repository; this code builds on them.
+Not started: this folder reserves its place in the repo.

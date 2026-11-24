@@ -96,8 +96,8 @@ test('every CHANGELOGS path gets its own component links', () => {
     const text = EMPTY.replace('apps/desktop', dir);
     assert.deepEqual(validate(text, { path }), [], path);
   }
-  const prefix = /\[0\.1\.0\]: .*releases\/tag\/plaintask\.app-v0\.1\.0$/m;
-  const site = 'sites/plaintask.app/CHANGELOG.md';
+  const prefix = /\[0\.1\.0\]: .*releases\/tag\/mobile-v0\.1\.0$/m;
+  const site = 'apps/mobile/CHANGELOG.md';
   const released = render(release(parse(withEntry('- X ([#1])')).doc, { version: '0.1.0', date: '2026-01-01' }), { path: site });
   assert.match(released, prefix);
 });
@@ -305,15 +305,15 @@ async function withRepo(files, fn) {
 }
 
 test('validate.mjs exit codes and output', async () => {
-  await withRepo({ [PATH]: FULL, 'apps/sync/CHANGELOG.md': FULL }, async (root) => {
+  await withRepo({ [PATH]: FULL, 'apps/mobile/CHANGELOG.md': FULL }, async (root) => {
     const ok = run('validate.mjs', [join(root, PATH)]);
     assert.deepEqual([ok.status, ok.stdout, ok.stderr], [0, '', '']);
 
-    const bad = run('validate.mjs', [join(root, 'apps/sync/CHANGELOG.md')]);
+    const bad = run('validate.mjs', [join(root, 'apps/mobile/CHANGELOG.md')]);
     assert.equal(bad.status, 1);
     assert.equal(bad.stdout, '');
-    assert.match(bad.stderr, /apps\/sync\/CHANGELOG\.md: does not match/);
-    assert.match(bad.stderr, /links: expected "\[Unreleased\]: .*compare\/sync-v0\.2\.0\.\.\.HEAD"/);
+    assert.match(bad.stderr, /apps\/mobile\/CHANGELOG\.md: does not match/);
+    assert.match(bad.stderr, /links: expected "\[Unreleased\]: .*compare\/mobile-v0\.2\.0\.\.\.HEAD"/);
 
     const unlisted = run('validate.mjs', [join(root, 'apps', 'CHANGELOG.md')]);
     assert.equal(unlisted.status, 2);

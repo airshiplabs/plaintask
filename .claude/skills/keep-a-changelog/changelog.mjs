@@ -5,10 +5,6 @@
 export const CHANGELOGS = Object.freeze([
   'apps/desktop/CHANGELOG.md',
   'apps/mobile/CHANGELOG.md',
-  'apps/sync/CHANGELOG.md',
-  'sites/plaintask.ai/CHANGELOG.md',
-  'sites/plaintask.app/CHANGELOG.md',
-  'sites/plaintask.sh/CHANGELOG.md',
 ]);
 
 /** The six Keep a Changelog types, in the order a release lists them. */
