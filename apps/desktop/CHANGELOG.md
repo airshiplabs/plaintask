@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The About window shows the whole Check for Updates button ([#11])
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
@@ -65,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0-moved...desktop-v0.2.0-moved
 [0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0-moved
 [#2]: https://github.com/airshiplabs/plaintask/pull/2
+[#11]: https://github.com/airshiplabs/plaintask/pull/11
 [0518c85]: https://github.com/airshiplabs/plaintask/commit/0518c85
 [06546ee]: https://github.com/airshiplabs/plaintask/commit/06546ee
 [10274cb]: https://github.com/airshiplabs/plaintask/commit/10274cb

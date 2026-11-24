@@ -38,7 +38,7 @@ fn open(app: &AppHandle) -> tauri::Result<()> {
     }
     WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("about.html".into()))
         .title("About Plaintask")
-        .inner_size(300.0, 260.0)
+        .inner_size(300.0, 320.0)
         .resizable(false)
         .minimizable(false)
         .maximizable(false)

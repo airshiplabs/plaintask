@@ -947,7 +947,7 @@ function openAbout(t, { checkError = null } = {}) {
         if (command === 'check_for_updates') { if (about.checkError) throw about.checkError; return null; }
         throw new Error('the page asked for a command the app does not have: ' + command);
       } };`;
-  return openSite(t, 'apps/desktop/dist', 300, 260, { before: standIn, page: 'about.html' });
+  return openSite(t, 'apps/desktop/dist', 300, 320, { before: standIn, page: 'about.html' });
 }
 const STATUS = TEXT('[data-status]');
 const BUTTON = TEXT('[data-button] .pt-btn');
@@ -960,6 +960,16 @@ test('About shows the version, and Check for Updates opens the update window', {
   await page.evaluate(click('[data-button] .pt-btn'));
   assert.equal(await page.poll('window.__about.calls.filter(c => c === "check_for_updates").length', n => n === 1), 1);
   assert.equal(await page.evaluate(STATUS), '');
+});
+
+test('About fits its window, with the button and status inside it', { timeout: 60000 }, async t => {
+  const page = await openAbout(t, { checkError: 'updates need the built app' });
+  assert.equal(await page.poll(TEXT('[data-version]')), 'Version 0.2.0', 'precondition: the version did not show');
+  await page.evaluate(click('[data-button] .pt-btn'));
+  assert.ok(await page.poll(STATUS, s => s?.startsWith('Could')), 'precondition: the status did not show');
+  const bottom = await page.evaluate('Math.ceil(document.querySelector("[data-status]").getBoundingClientRect().bottom)');
+  const height = await page.evaluate('window.innerHeight');
+  assert.ok(bottom <= height, `the status ends at ${bottom}px, below the ${height}px window`);
 });
 
 test('About says why the update window could not open', { timeout: 60000 }, async t => {
