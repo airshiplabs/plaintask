@@ -130,8 +130,8 @@ export function assessArtifact(facts, expected) {
   const appProblems = [
     !app.verified && 'codesign --verify --deep --strict failed',
     app.display.identifier !== BUNDLE_ID && `identifier is ${app.display.identifier}`,
-    !app.display.flags.includes('runtime') && 'hardened runtime is off',
-    ...(expected.adhoc ? [] : developerIdProblems(app.display, expected.teamId)),
+    // An ad-hoc build is signed without the hardened runtime: its library validation refuses Sparkle.framework without a Team ID.
+    ...(expected.adhoc ? [] : [!app.display.flags.includes('runtime') && 'hardened runtime is off', ...developerIdProblems(app.display, expected.teamId)]),
   ].filter(Boolean);
 
   const checks = [
@@ -143,7 +143,7 @@ export function assessArtifact(facts, expected) {
     developerIdOnly('dmg-gatekeeper', facts.dmgGatekeeper, 'spctl -a -t open --context context:primary-signature'),
     { id: 'volume-layout', ok: facts.volume.hasApp && facts.volume.applicationsLink === '/Applications',
       detail: `${PRODUCT_NAME}.app ${facts.volume.hasApp ? 'present' : 'missing'}; Applications -> ${facts.volume.applicationsLink}` },
-    { id: 'app-signature', ok: appProblems.length === 0, detail: appProblems.join('; ') || (app.display.authorities[0] ?? 'adhoc, hardened runtime') },
+    { id: 'app-signature', ok: appProblems.length === 0, detail: appProblems.join('; ') || (app.display.authorities[0] ?? 'adhoc') },
     developerIdOnly('app-notarized', facts.appNotarized, 'codesign --check-notarization'),
     developerIdOnly('app-distribution', facts.appDistribution, 'syspolicy_check distribution'),
     { id: 'app-entitlements', ok: entitlements.length === 0, detail: entitlements.join('; ') || `${Object.keys(facts.entitlements).length} entitlements match Entitlements.plist` },

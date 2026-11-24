@@ -3,7 +3,8 @@
 // notarization. Tauri signs Sparkle's XPC services with the app's own sandbox entitlements, which stops
 // Installer.xpc from launching the installer, and leaves Autoupdate and Updater.app ad-hoc signed.
 // https://sparkle-project.org/documentation/sandboxing/ gives the order: the nested code, the framework, the app.
-// It signs with APPLE_SIGNING_IDENTITY, as tauri build does, or ad-hoc without it.
+// It signs with APPLE_SIGNING_IDENTITY, as tauri build does, or ad-hoc without it. An ad-hoc build has no Team ID, so it
+// is signed without the hardened runtime: the runtime's library validation would refuse to load Sparkle.framework.
 //   pnpm --filter @plaintask/desktop app [-- tauri build options]
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -20,8 +21,8 @@ const run = (command, args) => execFileSync(command, args, { stdio: 'inherit' })
 run('tauri', ['build', ...process.argv.slice(2)]);
 
 const identity = process.env.APPLE_SIGNING_IDENTITY || '-';
-const sign = (path, ...extra) =>
-  run('codesign', ['--force', '--sign', identity, '--options', 'runtime', ...(identity === '-' ? [] : ['--timestamp']), ...extra, path]);
+const developerId = identity === '-' ? [] : ['--options', 'runtime', '--timestamp'];
+const sign = (path, ...extra) => run('codesign', ['--force', '--sign', identity, ...developerId, ...extra, path]);
 
 const framework = join(APP, 'Contents/Frameworks/Sparkle.framework');
 for (const nested of ['XPCServices/Installer.xpc', 'XPCServices/Downloader.xpc', 'Autoupdate', 'Updater.app']) sign(join(framework, 'Versions/B', nested));
