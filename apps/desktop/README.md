@@ -27,7 +27,7 @@ Run from the repo root.
 | --- | --- |
 | `pnpm install` | Installs the Tauri CLI and TypeScript for this package |
 | `PLAINTASK_ROOT=~/Tasks pnpm --filter @plaintask/desktop tauri dev` | Runs the app from source on that folder, with no folder panel and no sandbox |
-| `pnpm --filter @plaintask/desktop app` | Builds `src-tauri/target/release/bundle/macos/Plaintask.app`: sandboxed, ad-hoc signed (Developer ID with `APPLE_SIGNING_IDENTITY`), Sparkle's nested code signed again afterwards. Use it, not `tauri build`, for any app that must install an update |
+| `pnpm --filter @plaintask/desktop app` | Builds `src-tauri/target/release/bundle/macos/Plaintask.app`: sandboxed, ad-hoc signed without the hardened runtime (Developer ID and hardened runtime with `APPLE_SIGNING_IDENTITY`), Sparkle's nested code signed again afterwards. Use it, not `tauri build`, for any app that must install an update |
 | `pnpm --filter @plaintask/desktop typecheck` | Type-checks `src/` |
 | `pnpm test` | Runs the task file rules and the page tests with the repo's other tests |
 | `pnpm test:perf` | Runs the speed budgets below, one test file at a time |

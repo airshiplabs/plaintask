@@ -42,7 +42,7 @@ test('tauriEnv removes every Apple variable Tauri reads and sets only the identi
 
 const ADHOC_DISPLAY = [
   'Executable=/tmp/Plaintask.app/Contents/MacOS/plaintask', 'Identifier=com.airshiplabs.plaintask', 'Format=app bundle with Mach-O thin (arm64)',
-  'CodeDirectory v=20500 size=30000 flags=0x10002(adhoc,runtime) hashes=900+7 location=embedded', 'Signature=adhoc', 'TeamIdentifier=not set',
+  'CodeDirectory v=20500 size=30000 flags=0x2(adhoc) hashes=900+7 location=embedded', 'Signature=adhoc', 'TeamIdentifier=not set',
 ].join('\n');
 const DEVELOPER_ID_DISPLAY = [
   'Executable=/tmp/Plaintask.app/Contents/MacOS/plaintask', 'Identifier=com.airshiplabs.plaintask',
@@ -52,7 +52,7 @@ const DEVELOPER_ID_DISPLAY = [
 ].join('\n');
 
 test('parseCodesignDisplay reads an ad-hoc and a Developer ID signature', () => {
-  assert.deepEqual(parseCodesignDisplay(ADHOC_DISPLAY), { identifier: 'com.airshiplabs.plaintask', flags: ['adhoc', 'runtime'], authorities: [], timestamp: null, teamId: null, adhoc: true });
+  assert.deepEqual(parseCodesignDisplay(ADHOC_DISPLAY), { identifier: 'com.airshiplabs.plaintask', flags: ['adhoc'], authorities: [], timestamp: null, teamId: null, adhoc: true });
   assert.deepEqual(parseCodesignDisplay(DEVELOPER_ID_DISPLAY), {
     identifier: 'com.airshiplabs.plaintask', flags: ['runtime'], authorities: [NAME, 'Developer ID Certification Authority', 'Apple Root CA'],
     timestamp: 'Nov 22, 2026 at 10:00:00', teamId: 'AB12CD34EF', adhoc: false,
@@ -83,7 +83,7 @@ test('notarizationProblems names each notary rule a signature breaks', () => {
     'com.apple.security.get-task-allow marks a debug build',
   ]);
   assert.deepEqual(notarizationProblems(parseCodesignDisplay(ADHOC_DISPLAY), ENTITLEMENTS, 'AB12CD34EF'), [
-    'signature is ad-hoc', 'first authority is absent', 'no secure timestamp', 'team is null, expected AB12CD34EF',
+    'signed without the hardened runtime', 'signature is ad-hoc', 'first authority is absent', 'no secure timestamp', 'team is null, expected AB12CD34EF',
   ]);
 });
 
