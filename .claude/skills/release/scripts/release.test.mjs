@@ -44,8 +44,8 @@ const SPARKLE_PUBLIC_KEY = Buffer.from(SPARKLE_KEY.publicKey.export({ format: 'j
 const INFO_PLIST = ['<?xml version="1.0" encoding="UTF-8"?>', '<plist version="1.0">', '<dict>',
   '  <key>SUFeedURL</key>', '  <string>https://github.com/airshiplabs/plaintask/releases/latest/download/appcast.xml</string>',
   '  <key>SUPublicEDKey</key>', `  <string>${SPARKLE_PUBLIC_KEY}</string>`, '</dict>', '</plist>', ''].join('\n');
-/** What sign_update prints for `bytes`, signed with `key`. */
-const signUpdate = (bytes, key = SPARKLE_KEY.privateKey) => ({ stdout: `sparkle:edSignature="${sign(null, Buffer.from(bytes), key).toString('base64')}" length="${bytes.length}"\n` });
+/** What sign_update prints for `bytes`, signed with `key` from the login Keychain. */
+const signUpdate = (bytes, key = SPARKLE_KEY.privateKey) => ({ stdout: `sparkle:edSignature="${sign(null, Buffer.from(bytes), key).toString('base64')}" sparkle:length="${bytes.length}"\n` });
 // The empty template from .claude/skills/keep-a-changelog/FORMAT.md, for the desktop component.
 const EMPTY_CHANGELOG = [
   '# Changelog', '', 'All notable changes to this project are documented in this file.', '',
