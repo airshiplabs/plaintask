@@ -11,7 +11,8 @@ The exact format of every `CHANGELOG.md` in this repo. It is a strict subset of 
 | `apps/desktop/CHANGELOG.md` | `desktop-v` |
 | `apps/mobile/CHANGELOG.md` | `mobile-v` |
 
-- The tag prefix is the directory's last segment plus `-v`. Version `0.1.0` of the desktop app is the git tag `desktop-v0.1.0`.
+- The tag prefix is the directory's last segment plus `-v`. Version `0.3.0` of the desktop app is the git tag `desktop-v0.3.0`.
+- Desktop `0.1.0`, `0.2.0` and `0.2.1` are tagged `desktop-v0.1.0-moved`, `desktop-v0.2.0-moved` and `desktop-v0.2.1-moved`: GitHub reserves the plain names for the private repo they were first published on. `apps/desktop/moved-tags.json` (`MOVED_TAGS_FILE`) maps each such version to its tag, and the links use those names. A component with no such file has none.
 - `packages/*` have no changelog. They are internal, and the apps' changelogs describe their user-facing effects.
 - To add a changelog, add its path to `CHANGELOGS` and to this table, then create the file from the empty template below, with that component's directory in the `[Unreleased]` link.
 - Every listed file must exist. CI fails when one is missing.

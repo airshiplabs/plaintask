@@ -57,10 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes that follow the macOS appearance ([#30])
 - The About window shows the build's git commit as its build number ([#44])
 
-[Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.1...HEAD
-[0.2.1]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.0...desktop-v0.2.1
-[0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0...desktop-v0.2.0
-[0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0
+[Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.1-moved...HEAD
+[0.2.1]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.0-moved...desktop-v0.2.1-moved
+[0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0-moved...desktop-v0.2.0-moved
+[0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0-moved
 [#2]: https://github.com/airshiplabs/plaintask/pull/2
 [#30]: https://github.com/airshiplabs/plaintask/pull/30
 [#44]: https://github.com/airshiplabs/plaintask/pull/44

@@ -1,7 +1,7 @@
 // cli.mjs - shared I/O for validate.mjs, add.mjs, and release.mjs: path lookup, file reads, and reports.
 import { readFile } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
-import { CHANGELOGS } from './changelog.mjs';
+import { join, resolve, sep } from 'node:path';
+import { CHANGELOGS, MOVED_TAGS_FILE } from './changelog.mjs';
 
 export const EXIT_VIOLATIONS = 1;
 export const EXIT_USAGE = 2;
@@ -11,6 +11,16 @@ export const FORMAT_DOC = '.claude/skills/keep-a-changelog/FORMAT.md';
 export function listedPath(file) {
   const absolute = resolve(file).split(sep).join('/');
   return CHANGELOGS.find((path) => absolute.endsWith(`/${path}`)) ?? null;
+}
+
+/** The moved tags named in a changelog's directory (MOVED_TAGS_FILE), or {} when the file is absent. */
+export async function readMovedTags(dir) {
+  try {
+    return JSON.parse(await readFile(join(dir, MOVED_TAGS_FILE), 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
 }
 
 export async function readText(source) {
