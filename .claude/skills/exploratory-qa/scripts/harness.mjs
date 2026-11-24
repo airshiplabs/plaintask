@@ -19,8 +19,10 @@ const DIST = fileURLToPath(new URL('../../../../apps/desktop/dist/', import.meta
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 
 // Tauri's page-side API calls window.__TAURI_INTERNALS__.invoke; a rejected command rejects with the Rust error's text.
+// @tauri-apps/api/event's listen calls transformCallback for the handler's id, then invokes plugin:event|listen.
 const STAND_IN = `<script>
-window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+let nextCallback = 1;
+window.__TAURI_INTERNALS__ = { transformCallback: () => nextCallback++, invoke: async (command, args) => {
   const out = await (await fetch('/ipc', { method: 'POST', body: JSON.stringify({ command, args }) })).json();
   if ('error' in out) throw out.error;
   return out.value;
@@ -52,6 +54,8 @@ export async function serve(folder, { port = 0, chosen = true } = {}) {
     }
     if (name === 'set_badge') { dock = args.count; return null; }
     if (name === 'ready' || name === 'first_frame') return null;
+    if (name === 'plugin:event|listen') return args.handler;   // no update events are sent
+    if (name === 'check_for_updates' || name === 'restart_for_update') return null;
     throw 'the page asked for a command the app does not have: ' + name;
   }
 

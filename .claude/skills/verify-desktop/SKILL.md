@@ -194,7 +194,7 @@ Inbox.md: 68 bytes, sha256 78e04e20c3ad
 sidebar badge: 2
 dock badge: 2
 focus: the document, no element
-commands since load: folder 1, choose_folder 0, read_inbox 1, write_inbox 0, set_badge 1, ready 1, first_frame 1
+commands since load: folder 1, choose_folder 0, read_inbox 1, write_inbox 0, set_badge 1, ready 1, first_frame 1, plugin:event|listen 2, check_for_updates 0, restart_for_update 0
 failing: nothing
 console errors: 0
 --- accessibility tree ---
@@ -293,7 +293,7 @@ The helper reads and writes only inside `.verify/` and rebuilds `apps/desktop/di
 
 ### How the stand-in differs from the app
 
-- The served `index.html` has one added `<script>` ahead of the page's own. It defines `window.__TAURI_INTERNALS__.invoke`, which sends each command to the daemon. Every other served byte is the build's.
+- The served `index.html` has one added `<script>` ahead of the page's own. It defines `window.__TAURI_INTERNALS__.invoke`, which sends each command to the daemon, and `transformCallback`, which `listen` from `@tauri-apps/api/event` needs. Every other served byte is the build's.
 - The stand-in answers each command with the same values as `src-tauri/src/main.rs`:
 
 | Command | Answer |
@@ -304,6 +304,8 @@ The helper reads and writes only inside `.verify/` and rebuilds `apps/desktop/di
 | `write_inbox` | `null` after the save. Rejects, and leaves the file as it is, with `<path> is read-only or locked, so Plaintask will not change it.`, with `<path> has a hard link, which a save would leave with the old text, so Plaintask will not change it. A symlink works.`, with `Could not save <path>: <reason>` (a folder that is gone among them), and with the `fail write` message |
 | `set_badge` | `null`. The count is kept for the `dock badge` line |
 | `ready`, `first_frame` | `null` |
+| `plugin:event\|listen` | The handler's id. No `update-available` or `update-restart` event is ever sent, so the update offer never shows |
+| `check_for_updates`, `restart_for_update` | `null` |
 
 - `write_inbox` writes a temporary file beside `Inbox.md` and renames it over the file. It follows a symlink and keeps the file's permission bits. It does not keep the owner, ACL, extended attributes or creation date, which the app keeps.
 - The file and the folder are real. The code that reads and writes them is this helper's, not `src-tauri/src/inbox_file.rs`. A refusal seen here shows what the page does with it. It does not show that the app refuses.

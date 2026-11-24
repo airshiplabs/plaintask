@@ -21,7 +21,7 @@ const SEED = '# Inbox\n\n- [ ] Buy milk\n- [ ] Call the tiler\n- [x] Water the p
 const WIDTH = 880, HEIGHT = 620;   // the viewport tests/desktop-app.test.mjs uses
 const WAIT = 15000;                // the bound on every wait for Chrome or the daemon, in ms
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css' };
-const COMMANDS = ['folder', 'choose_folder', 'read_inbox', 'write_inbox', 'set_badge', 'ready', 'first_frame'];
+const COMMANDS = ['folder', 'choose_folder', 'read_inbox', 'write_inbox', 'set_badge', 'ready', 'first_frame', 'plugin:event|listen', 'check_for_updates', 'restart_for_update'];
 
 const USAGE = `control-desktop.mjs <command> [--run <id>]     run id: letters, digits, - and _; default "default" or $VERIFY_RUN
 
@@ -165,8 +165,8 @@ async function launch(run, flags) {
   daemon.unref();
 
   let info = null;
-  for (const end = Date.now() + 2 * WAIT; Date.now() < end && alive(daemon.pid); await sleep(50))
-    if (fs.existsSync(p.runFile)) { info = JSON.parse(fs.readFileSync(p.runFile, 'utf8')); break; }
+  for (const end = Date.now() + 2 * WAIT; Date.now() < end && alive(daemon.pid) && !fs.existsSync(p.runFile); await sleep(50));
+  if (fs.existsSync(p.runFile)) info = JSON.parse(fs.readFileSync(p.runFile, 'utf8'));   // read even when the daemon has exited: it reports its error there
   if (!info || info.error) {
     const why = info?.error ?? 'the daemon did not report within ' + 2 * WAIT + ' ms';
     const said = fs.readFileSync(p.log, 'utf8').trim();
@@ -273,6 +273,8 @@ async function daemon(launchFile) {
     }
     if (command === 'set_badge') { state.dock = args.count; return null; }
     if (command === 'ready' || command === 'first_frame') return null;
+    if (command === 'plugin:event|listen') return args.handler;   // no update events are sent
+    if (command === 'check_for_updates' || command === 'restart_for_update') return null;
     if (!state.chosen) throw 'No task folder is chosen yet.';
     if (command === 'read_inbox') {
       if (state.fail.read) throw state.fail.read;
@@ -303,8 +305,9 @@ async function daemon(launchFile) {
     return null;
   }
 
-  const STAND_IN = '<script>window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {' +
-    ' const answer = await (await fetch("/__tauri/" + command, { method: "POST", body: JSON.stringify(args ?? {}) })).json();' +
+  // @tauri-apps/api/event's listen calls transformCallback for the handler's id, then invokes plugin:event|listen.
+  const STAND_IN = '<script>let nextCallback = 1; window.__TAURI_INTERNALS__ = { transformCallback: () => nextCallback++, invoke: async (command, args) => {' +
+    ' const answer = await (await fetch("/__tauri/" + encodeURIComponent(command), { method: "POST", body: JSON.stringify(args ?? {}) })).json();' +
     ' if (!answer.ok) throw answer.error; return answer.value; } };</script>\n';
   const body = req => new Promise((res, rej) => { let text = ''; req.on('data', d => { text += d; }); req.on('end', () => res(text)); req.on('error', rej); });
   const json = (res, status, value) => res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify(value));
@@ -313,7 +316,7 @@ async function daemon(launchFile) {
     try {
       const path = new URL(req.url, 'http://x').pathname;
       if (path.startsWith('/__tauri/') && req.method === 'POST') {
-        const command = path.slice(9), args = JSON.parse(await body(req) || '{}');
+        const command = decodeURIComponent(path.slice(9)), args = JSON.parse(await body(req) || '{}');
         state.inFlight++; state.lastCall = Date.now();
         try {
           const value = await tauri(command, args);
