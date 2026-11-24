@@ -16,66 +16,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The About window shows the build commit again, not the previous release tag ([#100])
+- The About window shows the build commit again, not the previous release tag ([df84b28])
 
 ## [0.2.0] - 2026-11-23
 
 ### Added
 
-- The Dock icon shows the number of open Inbox tasks ([#66])
+- The Dock icon shows the number of open Inbox tasks ([10274cb])
 
 ### Changed
 
-- Adding and ticking tasks in an Inbox of thousands of tasks no longer lags ([#88])
+- Adding and ticking tasks in an Inbox of thousands of tasks no longer lags ([928beac])
 
 ### Fixed
 
-- Inbox.md is read again when the window regains focus after it could not be opened ([#77])
-- Task lines inside a code block or an HTML comment no longer show in the Inbox or its count ([#78])
-- A double-click on Undo no longer completes the task again ([#79])
-- A task folder that was moved or deleted now says it cannot be found instead of showing Inbox zero ([#80])
-- Saves keep Finder tags and creation date, and refuse a read-only or hard-linked Inbox.md, saying why ([#81])
-- Long task titles wrap in the list, a ticked title is struck on every line, and Undo stays on screen ([#82])
-- Ticking three tasks in a row no longer takes away the first task's Undo ([#83])
-- Tasks under a first line of --- with no closing --- show, and adding one no longer shows an error ([#84])
-- A task ticked while another is being renamed no longer shows as open again ([#85])
-- Ticking a task now also shows what another editor changed in the file ([#91])
-- Pressing N while a ticked task folds away keeps the keyboard in the new-task field ([#94])
-- A save that lands after a failed reread no longer draws the list over the reason ([#93])
-- A title being edited closes when a notice replaces the list, so later renames still work ([#93])
+- Inbox.md is read again when the window regains focus after it could not be opened ([e21ed95])
+- Task lines inside a code block or an HTML comment no longer show in the Inbox or its count ([2e5a5b0])
+- A double-click on Undo no longer completes the task again ([fac2086])
+- A task folder that was moved or deleted now says it cannot be found instead of showing Inbox zero ([437eed7])
+- Saves keep Finder tags and creation date, and refuse a read-only or hard-linked Inbox.md, saying why ([c12ac3e])
+- Long task titles wrap in the list, a ticked title is struck on every line, and Undo stays on screen ([d930459])
+- Ticking three tasks in a row no longer takes away the first task's Undo ([06546ee])
+- Tasks under a first line of --- with no closing --- show, and adding one no longer shows an error ([f6f5fb3])
+- A task ticked while another is being renamed no longer shows as open again ([f821732])
+- Ticking a task now also shows what another editor changed in the file ([85f97e9])
+- Pressing N while a ticked task folds away keeps the keyboard in the new-task field ([e956d2f])
+- A save that lands after a failed reread no longer draws the list over the reason ([0518c85])
+- A title being edited closes when a notice replaces the list, so later renames still work ([0518c85])
 
 ## [0.1.0] - 2026-11-22
 
 ### Added
 
-- Inbox list backed by Inbox.md in a folder you choose, remembered across launches ([#30])
-- Add a task with N or the New task button; it lands as the last line of Inbox.md ([#30])
-- Tick a task with a click or Space, with Undo in a toast for 5 seconds ([#30])
-- Rename a task in place with Return on its row or a double-click on its title ([#30])
-- Move between tasks with j and k or the arrow keys ([#30])
-- The list rereads Inbox.md when the window regains focus ([#30])
-- Light and dark themes that follow the macOS appearance ([#30])
-- The About window shows the build's git commit as its build number ([#44])
+- Inbox list backed by Inbox.md in a folder you choose, remembered across launches ([a7f6353])
+- Add a task with N or the New task button; it lands as the last line of Inbox.md ([a7f6353])
+- Tick a task with a click or Space, with Undo in a toast for 5 seconds ([a7f6353])
+- Rename a task in place with Return on its row or a double-click on its title ([a7f6353])
+- Move between tasks with j and k or the arrow keys ([a7f6353])
+- The list rereads Inbox.md when the window regains focus ([a7f6353])
+- Light and dark themes that follow the macOS appearance ([a7f6353])
+- The About window shows the build's git commit as its build number ([6c9119d])
 
 [Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.1-moved...HEAD
 [0.2.1]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.0-moved...desktop-v0.2.1-moved
 [0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0-moved...desktop-v0.2.0-moved
 [0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0-moved
 [#2]: https://github.com/airshiplabs/plaintask/pull/2
-[#30]: https://github.com/airshiplabs/plaintask/pull/30
-[#44]: https://github.com/airshiplabs/plaintask/pull/44
-[#66]: https://github.com/airshiplabs/plaintask/pull/66
-[#77]: https://github.com/airshiplabs/plaintask/pull/77
-[#78]: https://github.com/airshiplabs/plaintask/pull/78
-[#79]: https://github.com/airshiplabs/plaintask/pull/79
-[#80]: https://github.com/airshiplabs/plaintask/pull/80
-[#81]: https://github.com/airshiplabs/plaintask/pull/81
-[#82]: https://github.com/airshiplabs/plaintask/pull/82
-[#83]: https://github.com/airshiplabs/plaintask/pull/83
-[#84]: https://github.com/airshiplabs/plaintask/pull/84
-[#85]: https://github.com/airshiplabs/plaintask/pull/85
-[#88]: https://github.com/airshiplabs/plaintask/pull/88
-[#91]: https://github.com/airshiplabs/plaintask/pull/91
-[#93]: https://github.com/airshiplabs/plaintask/pull/93
-[#94]: https://github.com/airshiplabs/plaintask/pull/94
-[#100]: https://github.com/airshiplabs/plaintask/pull/100
+[0518c85]: https://github.com/airshiplabs/plaintask/commit/0518c85
+[06546ee]: https://github.com/airshiplabs/plaintask/commit/06546ee
+[10274cb]: https://github.com/airshiplabs/plaintask/commit/10274cb
+[2e5a5b0]: https://github.com/airshiplabs/plaintask/commit/2e5a5b0
+[437eed7]: https://github.com/airshiplabs/plaintask/commit/437eed7
+[6c9119d]: https://github.com/airshiplabs/plaintask/commit/6c9119d
+[85f97e9]: https://github.com/airshiplabs/plaintask/commit/85f97e9
+[928beac]: https://github.com/airshiplabs/plaintask/commit/928beac
+[a7f6353]: https://github.com/airshiplabs/plaintask/commit/a7f6353
+[c12ac3e]: https://github.com/airshiplabs/plaintask/commit/c12ac3e
+[d930459]: https://github.com/airshiplabs/plaintask/commit/d930459
+[df84b28]: https://github.com/airshiplabs/plaintask/commit/df84b28
+[e21ed95]: https://github.com/airshiplabs/plaintask/commit/e21ed95
+[e956d2f]: https://github.com/airshiplabs/plaintask/commit/e956d2f
+[f6f5fb3]: https://github.com/airshiplabs/plaintask/commit/f6f5fb3
+[f821732]: https://github.com/airshiplabs/plaintask/commit/f821732
+[fac2086]: https://github.com/airshiplabs/plaintask/commit/fac2086
