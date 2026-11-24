@@ -1,10 +1,11 @@
-// artifact.test.mjs - identity choice, the build environment, codesign parsing, and the artifact verdict in artifact.mjs.
+// artifact.test.mjs - identity choice, the build environment, codesign parsing, the artifact verdict, and Sparkle's appcast and signature in artifact.mjs.
 //   node --test artifact.test.mjs     (run from this directory)
 import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
 import {
-  assessArtifact, checksumLine, dmgName, entitlementProblems, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome, parseCodesignDisplay,
-  pickIdentity, tauriEnv,
+  appcastXml, assessArtifact, checksumLine, dmgName, edSignatureProblems, entitlementProblems, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome, parseCodesignDisplay,
+  parseSignUpdate, pickIdentity, plistString, tauriEnv,
 } from './artifact.mjs';
 
 const HASH_A = 'A'.repeat(40);
@@ -86,13 +87,13 @@ test('notarizationProblems names each notary rule a signature breaks', () => {
   ]);
 });
 
-const expected = { sha256: 'abc', version: '0.1.0', buildNumber: '4212807', teamId: 'AB12CD34EF', entitlements: ENTITLEMENTS, adhoc: false };
+const expected = { sha256: 'abc', version: '0.1.0', teamId: 'AB12CD34EF', entitlements: ENTITLEMENTS, adhoc: false };
 const developerIdDmg = parseCodesignDisplay(DEVELOPER_ID_DISPLAY.replace('Identifier=com.airshiplabs.plaintask', 'Identifier=com.airshiplabs.plaintask.dmg'));
 const goodFacts = {
   dmgSha256: 'abc', dmgImageValid: true, dmgSignature: { verified: true, display: developerIdDmg }, dmgStapled: true, dmgGatekeeper: true,
   volume: { hasApp: true, applicationsLink: '/Applications' },
   appSignature: { verified: true, display: parseCodesignDisplay(DEVELOPER_ID_DISPLAY) }, appNotarized: true, appDistribution: true,
-  entitlements: ENTITLEMENTS, bundleVersion: '0.1.0', bundleBuild: '4212807', archs: 'arm64', launch: { ready: true, detail: 'ready in 400 ms' },
+  entitlements: ENTITLEMENTS, bundleVersion: '0.1.0', bundleBuild: '0.1.0', archs: 'arm64', installerEntitlements: {}, launch: { ready: true, detail: 'ready in 400 ms' },
   appNotaryLog: { status: 'Accepted', issues: null },
   notaryLog: { status: 'Accepted', issues: null },
 };
@@ -103,7 +104,7 @@ test('assessArtifact passes a notarized Developer ID artifact and lists checks i
   assert.equal(verdict.ok, true);
   assert.deepEqual(verdict.checks.map((check) => check.id), [
     'dmg-sha256', 'dmg-image', 'dmg-signature', 'dmg-stapled', 'dmg-gatekeeper', 'volume-layout', 'app-signature',
-    'app-notarized', 'app-distribution', 'app-entitlements', 'app-version', 'app-arch', 'app-launch', 'app-notary-log', 'notary-log',
+    'app-notarized', 'app-distribution', 'app-entitlements', 'app-version', 'app-sparkle-installer', 'app-arch', 'app-launch', 'app-notary-log', 'notary-log',
   ]);
   assert.ok(verdict.checks.every((check) => !check.skipped && check.detail.length > 0));
 });
@@ -126,7 +127,9 @@ test('assessArtifact fails the one check each bad fact breaks', () => {
     [{ appDistribution: false }, ['app-distribution']],
     [{ entitlements: { ...ENTITLEMENTS, 'com.apple.security.get-task-allow': true } }, ['app-entitlements']],
     [{ bundleVersion: '0.0.9' }, ['app-version']],
-    [{ bundleBuild: '4212807-dirty' }, ['app-version']],
+    [{ bundleBuild: '4212807' }, ['app-version']],
+    [{ installerEntitlements: null }, ['app-sparkle-installer']],
+    [{ installerEntitlements: { 'com.apple.security.app-sandbox': true } }, ['app-sparkle-installer']],
     [{ archs: 'x86_64 arm64' }, ['app-arch']],
     [{ launch: { ready: false, detail: 'no "ready" within 15000 ms' } }, ['app-launch']],
     [{ appNotaryLog: null }, ['app-notary-log']],
@@ -206,4 +209,36 @@ test('notaryOutcome: Invalid and Rejected are rejected, with the status Apple ga
 test('notaryOutcome: a timeout with no status, and In Progress, are pending', () => {
   assert.deepEqual(notaryOutcome({ id: 'abc', message: 'Timed out waiting for processing' }), { state: NOTARY_STATE.pending, status: 'In Progress' });
   assert.deepEqual(notaryOutcome({ id: 'abc', status: 'In Progress' }), { state: NOTARY_STATE.pending, status: 'In Progress' });
+});
+
+test('appcastXml offers the DMG with its EdDSA signature and the notes as Markdown, escaped', () => {
+  const xml = appcastXml({ version: '0.3.0', notes: '### Fixed\n\n- A & B <now>', date: 'Mon, 23 Nov 2026 17:00:00 GMT',
+    url: 'https://github.com/airshiplabs/plaintask/releases/download/desktop-v0.3.0/Plaintask_0.3.0_aarch64.dmg', length: 4593001, signature: 'c2ln+/=' });
+  assert.match(xml, /<sparkle:version>0\.3\.0<\/sparkle:version>/);
+  assert.match(xml, /<sparkle:shortVersionString>0\.3\.0<\/sparkle:shortVersionString>/);
+  assert.match(xml, /<description sparkle:format="markdown">### Fixed\n\n- A &amp; B &lt;now&gt;<\/description>/);
+  assert.match(xml, /<enclosure url="https:\/\/github\.com\/airshiplabs\/plaintask\/releases\/download\/desktop-v0\.3\.0\/Plaintask_0\.3\.0_aarch64\.dmg" length="4593001" type="application\/octet-stream" sparkle:edSignature="c2ln\+\/="\/>/);
+});
+
+test('parseSignUpdate reads what sign_update prints, and nothing else', () => {
+  assert.deepEqual(parseSignUpdate('sparkle:edSignature="qoTp+/A==" length="3"\n'), { signature: 'qoTp+/A==', length: 3 });
+  assert.equal(parseSignUpdate('ERROR! Unable to access required key in the keychain\n'), null);
+});
+
+test('edSignatureProblems accepts the key\'s signature and rejects another key, another file and a malformed key', () => {
+  const key = generateKeyPairSync('ed25519');
+  const publicKey = Buffer.from(key.publicKey.export({ format: 'jwk' }).x, 'base64url').toString('base64');
+  const bytes = Buffer.from('a disk image');
+  const signature = sign(null, bytes, key.privateKey).toString('base64');
+  assert.deepEqual(edSignatureProblems(publicKey, signature, bytes), []);
+  assert.deepEqual(edSignatureProblems(publicKey, signature, Buffer.from('another disk image')), ['the signature does not match the file and SUPublicEDKey']);
+  assert.deepEqual(edSignatureProblems(publicKey, sign(null, bytes, generateKeyPairSync('ed25519').privateKey).toString('base64'), bytes), ['the signature does not match the file and SUPublicEDKey']);
+  assert.deepEqual(edSignatureProblems('PUBKEY', signature, bytes), ['SUPublicEDKey is not an Ed25519 public key']);
+});
+
+test('plistString reads a string key from Info.plist text, and null for a missing or non-string key', () => {
+  const xml = '<dict>\n  <key>SUFeedURL</key>\n  <string>https://example.com/a?b=1&amp;c=2</string>\n  <key>SUEnableAutomaticChecks</key>\n  <false/>\n</dict>';
+  assert.equal(plistString(xml, 'SUFeedURL'), 'https://example.com/a?b=1&c=2');
+  assert.equal(plistString(xml, 'SUEnableAutomaticChecks'), null);
+  assert.equal(plistString(xml, 'SUPublicEDKey'), null);
 });

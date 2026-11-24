@@ -5,7 +5,7 @@ description: Check a change to the desktop app (apps/desktop) in its real macOS 
 
 # Checking the desktop app in its real window
 
-`pnpm test` runs the app's page in headless Chrome. It does not cover WKWebView, the App Sandbox, the folder panel, the remembered folder or window dragging. A check of any of those needs the built app.
+`pnpm test` runs the app's page in headless Chrome. It does not cover WKWebView, the App Sandbox, the folder panel, the remembered folder, window dragging or installing an update. A check of any of those needs the built app.
 
 ## Before you start
 
@@ -15,11 +15,16 @@ description: Check a change to the desktop app (apps/desktop) in its real macOS 
 ## Make a separate copy
 
 1. Build under a test identifier:
-   `pnpm --filter @plaintask/desktop tauri build --config '{"identifier":"com.airshiplabs.plaintask.dev"}'`
+   `pnpm --filter @plaintask/desktop app --config '{"identifier":"com.airshiplabs.plaintask.dev"}'`
+   `app`, not `tauri build`: it signs Sparkle's nested code again afterwards and writes the test identifier into Sparkle's sandbox entitlements. A plain `tauri build` makes an app whose update fails with "An error occurred while launching the installer".
 2. Copy `apps/desktop/src-tauri/target/release/bundle/macos/Plaintask.app` somewhere outside the repo. The next build overwrites it.
 3. Open the copy once and quit it. macOS creates `~/Library/Containers/com.airshiplabs.plaintask.dev` on first launch.
 4. Write a test `Inbox.md` into a folder under that container's `Data/tmp/`. The sandboxed copy can read its own container with no folder panel.
 5. Start the copy's binary (`Contents/MacOS/plaintask`) with `PLAINTASK_ROOT` set to that folder.
+
+## Check an update
+
+The recipe is in `docs/feature-map/check-for-updates.md`, "A real install". It builds two versions under the test identifier with a throwaway EdDSA key and a feed on `127.0.0.1`. Never point it at `/Applications/Plaintask.app`: Sparkle replaces the bundle the running app was started from.
 
 ## Input a background window does not accept
 

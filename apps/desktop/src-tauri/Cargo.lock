@@ -2410,6 +2410,9 @@ dependencies = [
  "libc",
  "objc2",
  "objc2-foundation",
+ "serde",
+ "serde_json",
+ "sparkle-updater",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -3113,6 +3116,22 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "sparkle-updater"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6d60731c5488e4f3230adcb49041f8f03a49fd546765c896290e07fa3baf949"
+dependencies = [
+ "block2",
+ "log",
+ "objc2",
+ "objc2-foundation",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "url",
 ]
 
 [[package]]

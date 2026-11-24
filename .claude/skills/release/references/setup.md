@@ -87,6 +87,26 @@ xcrun notarytool submit /tmp/probe.zip --keychain-profile "plaintask-notary" --w
 
 This uploads the probe, a signed copy of `/usr/bin/true`, to Apple. When `--wait` is interrupted or times out, the submission goes on: `xcrun notarytool history --keychain-profile "plaintask-notary"` shows its status. Start the release once the status is no longer `In Progress`; the warning stops as soon as the history lists the submission.
 
+## `sparkle-key`: the updates' EdDSA key
+
+Every installed copy checks `appcast.xml` on this repository's latest release and installs the DMG it names only when that DMG carries a signature by this key. The app holds the public half (`SUPublicEDKey`). Lose the private half and no installed copy can update again: people must download the next version by hand.
+
+1. Put Sparkle's tools in place: `node apps/desktop/scripts/sparkle.mjs`.
+2. Create the key in the login Keychain: `apps/desktop/src-tauri/sparkle-bin/generate_keys`. It prints the public key. Run it once, ever: a second run on a Mac that has the key prints the same key.
+3. Back it up: `apps/desktop/src-tauri/sparkle-bin/generate_keys -x sparkle-private-key.txt`. Store the file's contents in 1Password as "Plaintask Sparkle EdDSA key", then delete the file. On another Mac, `generate_keys -f <file>` imports it.
+
+The first `sign_update` with the key opens a Keychain dialog. Choose Always Allow.
+
+Check: `apps/desktop/src-tauri/sparkle-bin/generate_keys -p` prints the public key.
+
+## `sparkle-pubkey`: the app trusts that key
+
+Put the printed public key in `apps/desktop/src-tauri/Info.plist` at `SUPublicEDKey`, in its own pull request, before the release is cut. The check also wants `SUFeedURL` to be `https://github.com/airshiplabs/plaintask/releases/latest/download/appcast.xml`.
+
+## `public-repo`: the feed is readable
+
+The app reads the release with no credentials, so `airshiplabs/plaintask` must be public. A private repository fails the check: the app could not see its own updates.
+
 ## `git-signing`: signed commits and tags
 
 The release commit and the release tag must carry a valid signature. `git config --get commit.gpgsign` must print `true`, and `user.signingkey` must be set. With `gpg.format = ssh`, `gpg.ssh.allowedSignersFile` must name a file that lists the signing key: `git tag -v` cannot verify a tag without it.

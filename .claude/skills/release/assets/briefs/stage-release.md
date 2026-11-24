@@ -1,6 +1,6 @@
 # Task: tag the release commit and stage the draft release
 
-Run one command. It creates the signed tag `desktop-v<version>` on the built commit, pushes the tag, and creates a draft GitHub release with the release notes, the DMG, and `SHA256SUMS.txt`. A draft is visible only to people with write access to the repository. This task does not publish.
+Run one command. It creates the signed tag `desktop-v<version>` on the built commit, pushes the tag, signs the DMG with Sparkle's `sign_update` (the updates' EdDSA key in the login Keychain), writes `appcast.xml`, and creates a draft GitHub release with the release notes, the DMG, `SHA256SUMS.txt` and `appcast.xml`. A draft is visible only to people with write access to the repository. This task does not publish.
 
 ## Inputs
 

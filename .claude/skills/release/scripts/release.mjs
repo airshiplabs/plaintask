@@ -14,13 +14,14 @@
 //   node release.mjs verify    --version V [--adhoc]             checks the built DMG; writes verify.json
 //   node release.mjs qa        --version V --verdict ready|blocked --report FILE [--blockers N,N] [--issues N,N]
 //                                                                records the QA run of the verified build; writes qa.json
-//   node release.mjs stage     --version V [--dry-run]           signed tag, tag push, draft GitHub release with the assets
-//   node release.mjs publish   --version V [--dry-run]           publishes the draft, downloads the asset, compares checksums
+//   node release.mjs stage     --version V [--dry-run]           signed tag, tag push, Sparkle signature and appcast, draft GitHub release with the assets
+//   node release.mjs publish   --version V [--dry-run]           publishes the draft as the latest release, downloads the assets, compares them
 // Output: one JSON object on stdout, or nothing. Diagnostics and the output of wrapped tools go to stderr.
 // --dry-run prints "would run: <command>" for each command that changes something, and runs the read-only ones.
 // The changelog format, its scripts, and the desktop-v<V> tag name belong to .claude/skills/keep-a-changelog/.
-// Files: dist/release/entries.json holds the changelog entries a release adds. dist/release/<V>/ holds the DMG, SHA256SUMS.txt, build.json, verify.json, qa.json, qa-report.md,
-// app-notary-log.json, notary-log.json, release-notes.md and release-report.md. An --adhoc rehearsal uses dist/release/<V>-adhoc/ and can never be staged.
+// Files: dist/release/entries.json holds the changelog entries a release adds. dist/release/<V>/ holds the DMG, SHA256SUMS.txt, appcast.xml, build.json, verify.json, qa.json, qa-report.md,
+// app-notary-log.json, notary-log.json, release-notes.md and release-report.md.
+// The app updates itself through Sparkle from appcast.xml on this repo's latest release, which offers the release's DMG. An --adhoc rehearsal uses dist/release/<V>-adhoc/ and can never be staged.
 // Exit 0: done. Exit 1: a check failed; do not go on. Exit 2: usage error or a missing prerequisite.
 // Exit 3: outside work (CI, notarization) is still running; run the same command again.
 import { spawn, spawnSync } from 'node:child_process';
@@ -29,10 +30,9 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
-  assessArtifact, CHECKSUMS_NAME, checksumLine, DMG_IDENTIFIER, dmgName, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome,
+  APPCAST_NAME, appcastXml, assessArtifact, CHECKSUMS_NAME, edSignatureProblems, parseSignUpdate, plistString, SPARKLE_INSTALLER, checksumLine, DMG_IDENTIFIER, dmgName, launchVerdict, NOTARY_STATE, notarizationProblems, notaryOutcome,
   parseCodesignDisplay, pickIdentity, PRODUCT_NAME, SIGNATURE, tauriEnv,
 } from './artifact.mjs';
-import { buildNumber } from '../../../../apps/desktop/scripts/build-number.mjs';
 import { appendFooter, sessionFooter } from '../../pr-session-footer/session-footer.mjs';
 import { componentFor, validate as validateChangelog } from '../../keep-a-changelog/changelog.mjs';
 import { CHANGELOG, cutRelease, entriesOf, releaseBody, render, validateAdditions } from './changelog.mjs';
@@ -60,6 +60,10 @@ const HOOKS = Object.freeze(['commit-msg', 'pre-commit']);
 const CHANGELOG_VALIDATOR = '.claude/skills/keep-a-changelog/validate.mjs';
 const CARGO_MANIFEST = 'apps/desktop/src-tauri/Cargo.toml';
 const ENTITLEMENTS = 'apps/desktop/src-tauri/Entitlements.plist';
+const INFO_PLIST = 'apps/desktop/src-tauri/Info.plist';
+/** Sparkle's tools, which apps/desktop/scripts/sparkle.mjs downloads. The EdDSA key they use is in the login Keychain. */
+const SPARKLE_BIN = 'apps/desktop/src-tauri/sparkle-bin';
+const FEED_URL = `https://github.com/${REPO}/releases/latest/download/appcast.xml`;
 const APP_BUNDLE = `apps/desktop/src-tauri/target/release/bundle/macos/${PRODUCT_NAME}.app`;
 const APP_BINARY = 'Contents/MacOS/plaintask';
 const HOST_TRIPLE = 'aarch64-apple-darwin';
@@ -510,6 +514,24 @@ function setupChecks() {
       const name = repo.status === 0 ? JSON.parse(repo.stdout).nameWithOwner : null;
       return name === REPO ? null : `gh resolves this checkout to ${name}, expected ${REPO}`;
     }],
+    ['sparkle-key', `create the updates' EdDSA key with generate_keys: ${SEE.setup}`, () => {
+      const key = sparklePublicKey();
+      return key ? null : `generate_keys -p finds no key in the login Keychain (no ${SPARKLE_BIN}? run node apps/desktop/scripts/sparkle.mjs)`;
+    }],
+    ['sparkle-pubkey', `put the key's public half in ${INFO_PLIST} at SUPublicEDKey: ${SEE.setup}`, () => {
+      const plist = showAt(BASE, INFO_PLIST) ?? '';
+      const feed = plistString(plist, 'SUFeedURL');
+      if (feed !== FEED_URL) return `${INFO_PLIST} on ${BASE} has SUFeedURL ${feed}, expected ${FEED_URL}`;
+      const key = sparklePublicKey();
+      const trusted = plistString(plist, 'SUPublicEDKey');
+      return key && trusted === key ? null : `SUPublicEDKey in ${INFO_PLIST} on ${BASE} is ${trusted}; the Keychain's key is ${key ?? 'missing'}`;
+    }],
+    ['public-repo', `make ${REPO} public: the app reads its releases with no credentials`, () => {
+      const repo = run('gh', ['repo', 'view', REPO, '--json', 'visibility']);
+      if (repo.status !== 0) return `gh cannot see ${REPO}`;
+      const { visibility } = JSON.parse(repo.stdout);
+      return visibility === 'PUBLIC' ? null : `${REPO} is ${visibility}`;
+    }],
     ['clean-tree', 'commit or remove the changes', () => (treeIsClean() ? null : 'the working tree has changes or untracked files')],
     ['head-at-main', `run "git switch --detach ${BASE}" so the gates test the code being released`, () => (headSha() === mainSha() ? null : `HEAD is ${headSha()}, ${BASE} is ${mainSha()}`)],
     ['manifests', 'make the four version manifests agree', () => {
@@ -681,8 +703,6 @@ function buildApp({ version, sha, adhoc, identity: override }, dir) {
   }
   const record = {
     version, sha: headSha(), dirty: !treeIsClean(), signature: adhoc ? SIGNATURE.adhoc : SIGNATURE.developerId, identity: identity?.identity ?? '-', teamName: identity?.teamName ?? null, teamId: identity?.teamId ?? null, dmg: dmgName(version),
-    // What apps/desktop/scripts/build-app.mjs writes as the macOS build number (CFBundleVersion).
-    buildNumber: buildNumber(),
   };
 
   mustStream('pnpm', ['install', '--frozen-lockfile']);
@@ -851,6 +871,7 @@ async function gatherFacts(dir, dmg, adhoc) {
       bundleVersion: hasApp ? plistValue(join(app, 'Contents/Info.plist'), 'CFBundleShortVersionString') : null,
       bundleBuild: hasApp ? plistValue(join(app, 'Contents/Info.plist'), 'CFBundleVersion') : null,
       archs: hasApp ? run('lipo', ['-archs', join(app, APP_BINARY)]).stdout.trim() : null,
+      installerEntitlements: hasApp && existsSync(join(app, SPARKLE_INSTALLER)) ? plistToJson(run('codesign', ['-d', '--entitlements', '-', '--xml', join(app, SPARKLE_INSTALLER)]).stdout) : null,
       launch: hasApp ? await launchProbe(app) : { ready: false, detail: 'no app to launch' },
       appNotaryLog: appNotaryLog && { status: appNotaryLog.status, issues: appNotaryLog.issues ?? null },
       notaryLog: notaryLog && { status: notaryLog.status, issues: notaryLog.issues ?? null },
@@ -870,7 +891,7 @@ async function verify({ version, adhoc }) {
   // A rehearsal of an uncommitted checkout compares against the file on disk; a release build against its commit.
   const expectedPlist = record.dirty ? readWorktree(ENTITLEMENTS) : showAt(record.sha, ENTITLEMENTS);
   const facts = await gatherFacts(dir, dmg, adhoc);
-  const verdict = assessArtifact(facts, { sha256: record.sha256, version, buildNumber: record.buildNumber, teamId: record.teamId, entitlements: plistToJson(expectedPlist ?? ''), adhoc });
+  const verdict = assessArtifact(facts, { sha256: record.sha256, version, teamId: record.teamId, entitlements: plistToJson(expectedPlist ?? ''), adhoc });
   const result = { version, adhoc, sha256: facts.dmgSha256, ...verdict, verifiedAt: new Date().toISOString() };
   writeJson(join(dir, 'verify.json'), result);
   print(result);
@@ -931,9 +952,29 @@ function qa({ version, verdict, report, blockers, issues }) {
   print(result);
 }
 
+/** The public half of the updates' EdDSA key in the login Keychain, or null when there is none. */
+function sparklePublicKey() {
+  const printed = run('generate_keys', ['-p'], sparkleEnv());
+  return printed.status === 0 ? printed.stdout.trim() || null : null;
+}
+
+/** Runs Sparkle's tools from SPARKLE_BIN, ahead of anything else on PATH. */
+const sparkleEnv = () => ({ env: { ...process.env, PATH: `${inRoot(SPARKLE_BIN)}:${process.env.PATH}` } });
+
+/** The appcast that offers the release's DMG, signed with the Keychain's EdDSA key and checked against the key the app trusts. */
+function writeAppcast(version, sha, dmg, record, notes, file) {
+  const signed = parseSignUpdate(must('sign_update', [dmg], sparkleEnv()));
+  if (!signed) fail(`sign_update printed no signature for ${dmg}`, SEE.setup);
+  const publicKey = plistString(showAt(sha, INFO_PLIST) ?? '', 'SUPublicEDKey');
+  const problems = edSignatureProblems(publicKey, signed.signature, readFileSync(dmg));
+  if (problems.length > 0) fail(`${record.dmg} would not install as an update: ${problems.join('; ')}`, SEE.setup);
+  const url = `https://github.com/${REPO}/releases/download/${tagFor(version)}/${record.dmg}`;
+  if (!dryRun) writeFileSync(file, appcastXml({ version, notes, date: new Date().toUTCString(), url, ...signed }));
+}
+
 function requireAssets(release, record) {
   const names = release.assets.map(({ name }) => name).sort();
-  const expected = [record.dmg, CHECKSUMS_NAME].sort();
+  const expected = [record.dmg, CHECKSUMS_NAME, APPCAST_NAME].sort();
   if (JSON.stringify(names) !== JSON.stringify(expected)) fail(`release ${release.tagName} has assets [${names.join(', ')}], expected [${expected.join(', ')}]`);
   const size = release.assets.find(({ name }) => name === record.dmg).size;
   if (size !== record.bytes) fail(`release asset ${record.dmg} is ${size} bytes; the verified build is ${record.bytes} bytes`);
@@ -969,7 +1010,11 @@ function stage({ version }) {
     changelogSection: section, dmgName: record.dmg, checksumsName: CHECKSUMS_NAME, sha256: record.sha256, teamName: record.teamName, teamId: record.teamId,
   });
   if (!dryRun) writeFileSync(notes, notesText);
-  if (!release) change('gh', ['release', 'create', tag, dmg, checksums, '--draft', '--verify-tag', '--title', titleFor(version), '--notes-file', notes]);
+  if (!release) {
+    const appcast = join(dir, APPCAST_NAME);
+    writeAppcast(version, sha, dmg, record, section, appcast);
+    change('gh', ['release', 'create', tag, dmg, checksums, appcast, '--draft', '--verify-tag', '--title', titleFor(version), '--notes-file', notes]);
+  }
   if (dryRun) return;
 
   release = viewRelease(version);
@@ -986,14 +1031,18 @@ function publish({ version }) {
   if (!release) fail(`no GitHub release for ${tag}: run stage first`, SEE.skill);
   if (remoteTagSha(tag) !== record.sha) fail(`tag ${tag} on origin does not point at the built commit ${record.sha}`);
   requireAssets(release, record);
-  if (release.isDraft) change('gh', ['release', 'edit', tag, '--draft=false']);
+  // The app reads releases/latest, so this release must be the one GitHub marks latest.
+  if (release.isDraft) change('gh', ['release', 'edit', tag, '--draft=false', '--latest']);
   if (dryRun) return;
 
   release = viewRelease(version);
   if (release.isDraft) fail(`release ${tag} is still a draft after "gh release edit"`);
   const downloads = mkdtempSync(join(tmpdir(), 'plaintask-release-'));
   try {
-    must('gh', ['release', 'download', tag, '--dir', downloads, '--pattern', record.dmg, '--pattern', CHECKSUMS_NAME]);
+    const latest = ghJson(['release', 'view', '--json', 'tagName']).tagName;
+    if (latest !== tag) fail(`GitHub marks ${latest} as the latest release, not ${tag}, so the app would not offer ${version}`);
+    must('gh', ['release', 'download', tag, '--dir', downloads, '--pattern', record.dmg, '--pattern', CHECKSUMS_NAME, '--pattern', APPCAST_NAME]);
+    if (readFileSync(join(downloads, APPCAST_NAME), 'utf8') !== readFileSync(join(dir, APPCAST_NAME), 'utf8')) fail(`the published ${APPCAST_NAME} differs from ${join(dir, APPCAST_NAME)}`);
     const downloaded = sha256Of(join(downloads, record.dmg));
     if (downloaded !== record.sha256) fail(`the published ${record.dmg} has sha256 ${downloaded}; the verified build has ${record.sha256}`);
     if (readFileSync(join(downloads, CHECKSUMS_NAME), 'utf8') !== checksumLine(record.sha256, record.dmg)) fail(`the published ${CHECKSUMS_NAME} does not list the verified build`);

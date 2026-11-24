@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The app checks for updates daily and installs a new version in place when you choose Update ([#103])
+- About Plaintask shows the version and checks for updates ([#103])
+
 ## [0.2.1] - 2026-11-23
 
 ### Fixed
@@ -73,3 +78,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#93]: https://github.com/airshiplabs/plaintask/pull/93
 [#94]: https://github.com/airshiplabs/plaintask/pull/94
 [#100]: https://github.com/airshiplabs/plaintask/pull/100
+[#103]: https://github.com/airshiplabs/plaintask/pull/103

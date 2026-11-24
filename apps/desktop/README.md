@@ -1,6 +1,6 @@
 # Plaintask desktop
 
-The desktop app, built with Tauri 2: one list, Inbox, backed by `Inbox.md` in a folder the person picks. A Rust layer owns the folder and the file; a page draws the list with the design system's own `tokens.css`, `bundle.css` and `bundle.js` (`packages/design-system`). macOS first: the sandbox entitlements, the folder bookmark and the window's traffic lights are the macOS-specific parts.
+The desktop app, built with Tauri 2: one list, Inbox, backed by `Inbox.md` in a folder the person picks. A Rust layer owns the folder, the file and updates; a page draws the list with the design system's own `tokens.css`, `bundle.css` and `bundle.js` (`packages/design-system`). macOS first: the sandbox entitlements, the folder bookmark, Sparkle's updates and the window's traffic lights are the macOS-specific parts.
 
 Open source under the MIT License. Plaintask Sync and the agent log are not started.
 
@@ -15,6 +15,7 @@ Open source under the MIT License. Plaintask Sync and the agent log are not star
 - Return on a focused row, or a double-click on a title, opens the title in a field in its place. Return or leaving the field saves; Escape keeps the old title. Only the title's characters change in the file.
 - `j`/`k` or the arrow keys move between rows.
 - Rereads the file when the window regains focus.
+- Checks for a new version at launch and every 24 hours. A newer one shows the toast "Plaintask <V> is available" with Update, which stays until it is clicked or closed. Update opens Sparkle's update window, which installs the version in place and restarts the app; the restart waits while the new-task form is open. App menu → "About Plaintask" shows the version and Check for Updates; "Check for Updates…" checks at once.
 
 Not built yet: other lists, projects, areas, tags, dates, repeating tasks, Trash, reordering, a view of completed tasks, a live file watcher, sync.
 
@@ -26,7 +27,7 @@ Run from the repo root.
 | --- | --- |
 | `pnpm install` | Installs the Tauri CLI and TypeScript for this package |
 | `PLAINTASK_ROOT=~/Tasks pnpm --filter @plaintask/desktop tauri dev` | Runs the app from source on that folder, with no folder panel and no sandbox |
-| `pnpm --filter @plaintask/desktop app` | Builds `src-tauri/target/release/bundle/macos/Plaintask.app`: sandboxed, ad-hoc signed |
+| `pnpm --filter @plaintask/desktop app` | Builds `src-tauri/target/release/bundle/macos/Plaintask.app`: sandboxed, ad-hoc signed (Developer ID with `APPLE_SIGNING_IDENTITY`), Sparkle's nested code signed again afterwards. Use it, not `tauri build`, for any app that must install an update |
 | `pnpm --filter @plaintask/desktop typecheck` | Type-checks `src/` |
 | `pnpm test` | Runs the task file rules and the page tests with the repo's other tests |
 | `pnpm test:perf` | Runs the speed budgets below, one test file at a time |
@@ -43,10 +44,16 @@ Run from the repo root.
 | `src/session.ts` | The window's session as a state machine: what the list area shows, the form, a rename. `specs/DesktopSession.tla` models it |
 | `src/rows.ts` | The list's rows, drawn only in and one view's height around the scroll view, so a 10,000-task Inbox draws ~50 rows |
 | `src/main.ts` | Mounts `app.ts` on the Rust commands and asks for the window |
+| `src/about.ts`, `src/about-main.ts`, `src/about.html`, `src/about.css` | The About window: the version and Check for Updates |
 | `src/index.html`, `src/app.css` | Shell markup; the layout `bundle.css` leaves to the app |
 | `build.mjs` | Bundles `src/` and copies the design system's three files into `dist/` |
 | `src-tauri/src/main.rs` | The commands the page calls: `folder`, `choose_folder`, `read_inbox`, `write_inbox`, `ready`, `first_frame` |
 | `src-tauri/src/folder.rs` | Remembers the chosen folder as a security-scoped bookmark |
+| `src-tauri/src/update.rs` | Sparkle 2: the checks at launch and every 24 hours, the `update-available` and `update-restart` events, `check_for_updates`, `restart_for_update` |
+| `src-tauri/src/about.rs` | The app menu's About Plaintask and Check for Updates… items, the About window, `app_version` |
+| `src-tauri/Info.plist` | Sparkle's feed URL, the updates' public EdDSA key, and its switches: install through Installer.xpc, no checks or installs of its own |
+| `scripts/sparkle.mjs` | Downloads Sparkle 2.9.6 (pinned SHA-256) into `src-tauri/Sparkle.framework` and `src-tauri/sparkle-bin/`, both git-ignored. The build, `tauri dev` and `check:rust` run it |
+| `scripts/build-app.mjs` | `tauri build`, then Sparkle's XPC services, Autoupdate and Updater.app signed again without the app's entitlements, then the framework and the app |
 | `src-tauri/src/inbox_file.rs` | Reads `Inbox.md`; replaces it through a temporary file and a rename that keeps its metadata |
 | `scripts/measure-launch.mjs` | Launch timing |
 
@@ -64,7 +71,7 @@ Tests: `tests/inbox.test.ts` (file rules), `tests/desktop-app.test.mjs` (the bui
 
 ## Sandbox
 
-The app runs in the macOS App Sandbox (`src-tauri/Entitlements.plist`). `com.apple.security.network.client` is there because WKWebView loads no page without it inside the sandbox, the app's own bundled page included. The app makes no network requests.
+The app runs in the macOS App Sandbox (`src-tauri/Entitlements.plist`). `com.apple.security.network.client` is there because WKWebView loads no page without it inside the sandbox, the app's own bundled page included; Sparkle also reads the feed and downloads updates through it. The app makes no other network requests. Two `mach-lookup` exceptions, `<bundle id>-spks` and `<bundle id>-spki`, let it reach Sparkle's Installer.xpc, which installs an update from outside the sandbox (https://sparkle-project.org/documentation/sandboxing/).
 
 Launch a Developer ID signed build through Launch Services: `open -W -n --env PLAINTASK_MEASURE_LAUNCH=1 --stdout <file> Plaintask.app`. Executing `Contents/MacOS/plaintask` directly starts the process, but the page never draws and "ready" never prints. An ad-hoc-signed build draws either way. `scripts/measure-launch.mjs` launches through `open`, so it times either build.
 
@@ -95,5 +102,7 @@ About 285 ms of the launch is the web view starting, which this stack cannot avo
 ## Checked in the built app's window
 
 Checked by hand on 2026-11-21 and 2026-11-22 in the sandboxed build: the folder panel, picking an empty folder, the bookmark across a relaunch and across an ad-hoc-signed rebuild, the traffic lights over the sidebar, dragging the window by its top strip with a real mouse, `N` / Return / Escape, the blank-title message, `j` and the arrow keys, Space and a click to tick, Undo, renaming by Return and by a real double-click, the reread when the window regains focus, the light and dark themes, and the file on disk after each step.
+
+Checked by hand on 2026-11-23, sandboxed Developer ID build under `com.airshiplabs.plaintask.dev`, local appcast on `127.0.0.1`: 0.2.1 read the feed by itself at launch and showed "Plaintask 0.2.2 is available"; Update opened Sparkle's window with the release notes; Install Update downloaded the DMG, checked its EdDSA signature, replaced the bundle and relaunched it as 0.2.2, still sandboxed; About read "Version 0.2.2". Not checked in the window: the restart waiting for an open new-task form (page tests only), the close button, and a Developer ID build that is also notarized.
 
 Background input that is not a real mouse does not drag the window or count as a double-click: a synthetic drag left the window in place and a synthetic double-click did not open the rename field.

@@ -49,9 +49,10 @@ const stop = async child => {
 };
 
 /** Serves one folder of the repo (such as apps/desktop/dist) on a spare port and opens it
-    in a width x height viewport. `before` is JavaScript that runs in the page ahead of the page's own scripts.
+    in a width x height viewport. `before` is JavaScript that runs in the page ahead of the page's own scripts; `page` is the
+    path and query to open, '' for the folder's index.
     Everything started here is stopped and removed when the test ends, whatever its outcome. */
-export async function openSite(t, site, width, height, { before } = {}) {
+export async function openSite(t, site, width, height, { before, page = '' } = {}) {
   await access(CHROME).catch(() => { throw new Error('Chrome not found at "' + CHROME + '": set the CHROME environment variable to a Chrome or Chromium binary'); });
   const undo = [];   // newest first: the profile goes only after Chrome has exited
   t.after(async () => { for (const step of undo) await step(); });
@@ -104,7 +105,7 @@ export async function openSite(t, site, width, height, { before } = {}) {
   await send('Page.enable');
   if (before) await send('Page.addScriptToEvaluateOnNewDocument', { source: before });
   const load = new Promise(res => { loaded = res; });
-  await send('Page.navigate', { url: 'http://127.0.0.1:' + port + '/' });
+  await send('Page.navigate', { url: 'http://127.0.0.1:' + port + '/' + page });
   await load;
 
   return {

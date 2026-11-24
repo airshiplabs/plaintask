@@ -12,6 +12,9 @@ docs/plans/
 # desktop app (Tauri): Rust build output and generated schemas
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+# Sparkle 2, downloaded by apps/desktop/scripts/sparkle.mjs
+apps/desktop/src-tauri/Sparkle.framework/
+apps/desktop/src-tauri/sparkle-bin/
 
 # verify-desktop skill: per-run scratch state and proof artifacts
 .verify/

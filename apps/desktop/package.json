@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
-    "check:rust": "node build.mjs && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --locked",
+    "check:rust": "node scripts/sparkle.mjs && node build.mjs && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml --locked",
     "tauri": "tauri",
     "app": "node scripts/build-app.mjs",
     "measure": "node scripts/measure-launch.mjs"

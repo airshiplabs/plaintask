@@ -15,6 +15,13 @@ export interface Backend {
   write(text: string): Promise<void>;
   /** Shows this number on the app's Dock icon. 0 removes it. */
   badge(count: number): Promise<void>;
+  /** Starts listening for the app's update checks, which run at launch and every 24 hours once the window is drawn.
+      `offer` gets each newer version a check finds; `restart` runs once an installed update waits to restart the app. */
+  onUpdate(listener: { offer(version: string): void; restart(): void }): Promise<void>;
+  /** Opens the app's update window, which downloads and installs the newest version. */
+  installUpdate(): Promise<void>;
+  /** Lets the installed update restart the app. */
+  restartForUpdate(): Promise<void>;
 }
 
 const P = window.Plaintask;
@@ -104,6 +111,40 @@ export async function mount(backend: Backend): Promise<void> {
   }
   const toast = (message: string) => { P.toast(toasts, message); };
 
+  /** The toast offering an update. Unlike other toasts it stays until it is clicked or closed; a closed one comes
+      back with the next check that finds the update. */
+  let offered: { version: string; toast: HTMLElement } | null = null;
+  function offerUpdate(version: string) {
+    if (offered && offered.version === version && offered.toast.isConnected && !offered.toast.classList.contains('is-leaving')) return;
+    if (offered) dismiss(offered.toast);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = P.Toast({ message: 'Plaintask ' + version + ' is available', action: 'Update' });
+    const el = wrap.firstElementChild as HTMLElement;
+    el.dataset.update = version;
+    el.insertAdjacentHTML('beforeend', '<button type="button" class="app__toast-close" aria-label="Close">' + P.icon('close') + '</button>');
+    el.addEventListener('click', e => {
+      const button = e.target instanceof Element ? e.target.closest('button') : null;
+      if (!button) return;
+      dismiss(el);
+      if (button.classList.contains('app__toast-close')) return;
+      backend.installUpdate().catch((error: unknown) => { toast(reason(error)); });
+    });
+    toasts.appendChild(el);
+    offered = { version, toast: el };
+  }
+  function dismiss(el: HTMLElement) {
+    if (el.classList.contains('is-leaving')) return;
+    el.classList.add('is-leaving');
+    setTimeout(() => { el.remove(); }, 220);
+  }
+  /** An installed update restarts the app, but not while the new-task form is open: then it waits for the form to close. */
+  let restartWaits = false;
+  function restartForUpdate() {
+    restartWaits = s.composer === 'open';
+    if (!restartWaits) backend.restartForUpdate().catch((e: unknown) => { toast(reason(e)); });
+  }
+  await backend.onUpdate({ offer: offerUpdate, restart: restartForUpdate });
+
   let queue: Promise<unknown> = Promise.resolve();
   function inTurn<T>(work: () => Promise<T>): Promise<T> {
     const run = queue.then(work);
@@ -170,6 +211,7 @@ export async function mount(backend: Backend): Promise<void> {
     composer.classList.add('is-leaving');
     composer.inert = true;
     if (returnFocus) head.querySelector<HTMLElement>('.pt-btn')?.focus({ preventScroll: true });
+    if (restartWaits) restartForUpdate();
   }
   function clearError() {
     error.textContent = '';

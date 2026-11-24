@@ -20,6 +20,10 @@ body input { user-select: text; -webkit-user-select: text; cursor: text; }
 /* Toasts stack with no cap (each keeps its Undo for 5 s), so a tall stack scrolls inside the window instead of running off its top. */
 .app__toasts { position: fixed; inset: auto var(--space-4) 20px; z-index: 10; pointer-events: none; max-height: calc(100vh - 40px); overflow-y: auto; }
 .app__toasts .pt-toast { pointer-events: auto; }
+/* The update toast's close button: an icon, not a second action. */
+.pt-toast .app__toast-close { display: grid; place-items: center; padding: 4px; margin-inline-start: calc(-1 * var(--space-2)); background: none; color: inherit; opacity: .7; }
+.pt-toast .app__toast-close:hover { opacity: 1; }
+.app__toast-close svg { width: 14px; height: 14px; }
 /* While the stack scrolls, the host takes the wheel too (the gaps between toasts), but only as wide as the toasts, so the list beside them still gets clicks. */
 .app__toasts.is-scrolling { pointer-events: auto; width: max-content; max-width: calc(100vw - 2 * var(--space-4)); box-sizing: border-box; margin-inline: auto; padding-inline: var(--space-3); }
 

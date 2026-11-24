@@ -1,5 +1,6 @@
 // artifact.mjs - the macOS artifact's pure rules: which signing identity to use, the build environment,
-// file names, reading codesign output, and the verdict on a built DMG. No I/O and no globals.
+// file names, reading codesign output, the verdict on a built DMG, and Sparkle's appcast and signature. No I/O and no globals.
+import { createPublicKey, verify } from 'node:crypto';
 
 export const PRODUCT_NAME = 'Plaintask';
 export const BUNDLE_ID = 'com.airshiplabs.plaintask';
@@ -108,11 +109,12 @@ export function entitlementProblems(expected, actual) {
  *   appSignature: { verified: boolean, display: ReturnType<typeof parseCodesignDisplay> },
  *   appNotarized: boolean, appDistribution: boolean,
  *   entitlements: Record<string, unknown>, bundleVersion: string | null, bundleBuild: string | null, archs: string | null,
+ *   installerEntitlements: Record<string, unknown> | null,
  *   launch: { ready: boolean, detail: string },
  *   appNotaryLog: { status: string, issues: { severity: string, message: string }[] | null } | null,
  *   notaryLog: { status: string, issues: { severity: string, message: string }[] | null } | null,
  * }} facts
- * @param {{ sha256: string, version: string, buildNumber: string, teamId: string | null, entitlements: Record<string, unknown>, adhoc: boolean }} expected
+ * @param {{ sha256: string, version: string, teamId: string | null, entitlements: Record<string, unknown>, adhoc: boolean }} expected
  * @returns {{ ok: boolean, checks: { id: string, ok: boolean, skipped?: true, detail: string }[] }}
  */
 export function assessArtifact(facts, expected) {
@@ -145,8 +147,12 @@ export function assessArtifact(facts, expected) {
     developerIdOnly('app-notarized', facts.appNotarized, 'codesign --check-notarization'),
     developerIdOnly('app-distribution', facts.appDistribution, 'syspolicy_check distribution'),
     { id: 'app-entitlements', ok: entitlements.length === 0, detail: entitlements.join('; ') || `${Object.keys(facts.entitlements).length} entitlements match Entitlements.plist` },
-    { id: 'app-version', ok: facts.bundleVersion === expected.version && facts.bundleBuild === expected.buildNumber,
-      detail: `CFBundleShortVersionString ${facts.bundleVersion}, CFBundleVersion ${facts.bundleBuild} (built from ${expected.buildNumber})` },
+    // Sparkle compares an update's version with CFBundleVersion, so both carry the release's version.
+    { id: 'app-version', ok: facts.bundleVersion === expected.version && facts.bundleBuild === expected.version,
+      detail: `CFBundleShortVersionString ${facts.bundleVersion}, CFBundleVersion ${facts.bundleBuild}` },
+    // Notarization accepts a sandboxed Installer.xpc, but then Sparkle cannot launch the installer and no update installs.
+    { id: 'app-sparkle-installer', ok: facts.installerEntitlements !== null && !facts.installerEntitlements['com.apple.security.app-sandbox'],
+      detail: facts.installerEntitlements === null ? `no ${SPARKLE_INSTALLER} in the app` : facts.installerEntitlements['com.apple.security.app-sandbox'] ? `${SPARKLE_INSTALLER} is signed with the app sandbox` : `${SPARKLE_INSTALLER} is signed outside the sandbox` },
     { id: 'app-arch', ok: facts.archs === MACHO_ARCH, detail: `lipo -archs ${facts.archs}` },
     { id: 'app-launch', ok: facts.launch.ready, detail: facts.launch.detail },
     developerIdOnly('app-notary-log', facts.appNotaryLog?.status === 'Accepted' && appLogErrors.length === 0,
@@ -212,4 +218,58 @@ export function launchVerdict(settled, event, logs) {
   if (logs.stdout().includes('ready')) return { ready: true, detail: `"ready" after ${event.elapsedMs} ms` };
   if (event.type === 'exit') return { ready: false, detail: `the app exited (open: ${event.code}) before "ready"; stderr: ${logs.stderr()}` };
   return null;
+}
+
+/** Sparkle's installer service, inside the app. It must be signed without the app's sandbox entitlements. */
+export const SPARKLE_INSTALLER = 'Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc';
+
+/** A string value from property-list XML, such as Info.plist's SUFeedURL, or null when the key has no string. Needs no plutil. */
+export function plistString(xml, key) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const found = new RegExp(`<key>${escaped}</key>\\s*<string>([^<]*)</string>`).exec(xml ?? '');
+  return found ? found[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&') : null;
+}
+
+/** The update feed the app reads (Info.plist SUFeedURL): an asset of each release, read through releases/latest. */
+export const APPCAST_NAME = 'appcast.xml';
+
+const xmlText = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * Sparkle's appcast for one release: the DMG at `url`, its EdDSA `signature` and `length` from sign_update, and the
+ * changelog section as Markdown release notes. `date` is an RFC 822 date, such as Date#toUTCString gives.
+ */
+export function appcastXml({ version, notes, date, url, length, signature }) {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>${PRODUCT_NAME}</title>
+    <item>
+      <title>${xmlText(version)}</title>
+      <sparkle:version>${xmlText(version)}</sparkle:version>
+      <sparkle:shortVersionString>${xmlText(version)}</sparkle:shortVersionString>
+      <pubDate>${xmlText(date)}</pubDate>
+      <description sparkle:format="markdown">${xmlText(notes)}</description>
+      <enclosure url="${xmlText(url)}" length="${length}" type="application/octet-stream" sparkle:edSignature="${xmlText(signature)}"/>
+    </item>
+  </channel>
+</rss>
+`;
+}
+
+/** sign_update's output, `sparkle:edSignature="…" length="…"`, as { signature, length }, or null when it is not that. */
+export function parseSignUpdate(stdout) {
+  const found = /sparkle:edSignature="([A-Za-z0-9+/=]+)"\s+length="(\d+)"/.exec(stdout);
+  return found ? { signature: found[1], length: Number(found[2]) } : null;
+}
+
+/**
+ * What is wrong with an update's EdDSA signature, as Sparkle checks it before installing. [] when nothing.
+ * `publicKey` is SUPublicEDKey from the app's Info.plist (base64 of 32 bytes), `signature` the base64 signature.
+ */
+export function edSignatureProblems(publicKey, signature, bytes) {
+  const raw = Buffer.from(publicKey ?? '', 'base64');
+  if (raw.length !== 32) return ['SUPublicEDKey is not an Ed25519 public key'];
+  const key = createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x: raw.toString('base64url') }, format: 'jwk' });
+  return verify(null, bytes, key, Buffer.from(signature, 'base64')) ? [] : ['the signature does not match the file and SUPublicEDKey'];
 }

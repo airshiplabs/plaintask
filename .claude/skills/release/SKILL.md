@@ -13,7 +13,7 @@ node .claude/skills/release/scripts/release.mjs <subcommand> [flags]
 
 Run it from the repo root. Its header lists every subcommand. Exit 0: done. Exit 1: a check failed. Exit 2: usage error or a missing prerequisite. Exit 3: CI or notarization is still running; run the same command again.
 
-A release ships one asset, `Plaintask_<version>_aarch64.dmg`, for Apple Silicon Macs, built on this Mac. The tag is `desktop-v<version>`.
+A release ships `Plaintask_<version>_aarch64.dmg`, for Apple Silicon Macs, built on this Mac, with `SHA256SUMS.txt` and `appcast.xml`. The tag is `desktop-v<version>`. The app updates itself through Sparkle from `appcast.xml` on the repository's latest release, which offers that same DMG, signed with the updates' EdDSA key (`references/setup.md`, `sparkle-key`).
 
 The changelog is `apps/desktop/CHANGELOG.md`. Its format, its scripts, and that tag name belong to the `keep-a-changelog` skill; this skill calls its module and never restates its rules.
 
@@ -138,7 +138,7 @@ Ask whether to open the release pull request. This is the last point where nothi
 After `stage-release`, show the person:
 
 1. The draft release URL, the tag, and the commit.
-2. The asset name, size, and SHA-256.
+2. The asset name, size, and SHA-256. Publishing marks the release latest, so every installed copy offers it within 24 hours.
 3. How many `verify` checks passed, by count, and every notary log issue the verifier reported.
 4. The QA verdict, each checklist row marked `not covered` and why, and each issue QA filed, with its link. These are not blockers; the person decides whether any of them should hold the release.
 

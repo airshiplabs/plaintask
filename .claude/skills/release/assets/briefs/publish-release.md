@@ -1,6 +1,6 @@
 # Task: publish the release and check what was published
 
-Run one command. It turns the draft GitHub release into a published one, downloads the DMG and `SHA256SUMS.txt` from the published release, compares the download with the verified build, and writes `dist/release/<version>/release-report.md`. The person has approved publishing this version.
+Run one command. It turns the draft GitHub release into a published one marked latest, which is the release installed copies read their update from, downloads the DMG, `SHA256SUMS.txt` and `appcast.xml` from it, compares the download with the verified build, and writes `dist/release/<version>/release-report.md`. The person has approved publishing this version.
 
 ## Inputs
 
