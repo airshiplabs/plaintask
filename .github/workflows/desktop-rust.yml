@@ -8,12 +8,14 @@ on:
     paths:
       - apps/desktop/src-tauri/**
       - apps/desktop/package.json
+      - apps/desktop/scripts/sparkle.mjs
       - .github/workflows/desktop-rust.yml
   push:
     branches: [main]
     paths:
       - apps/desktop/src-tauri/**
       - apps/desktop/package.json
+      - apps/desktop/scripts/sparkle.mjs
       - .github/workflows/desktop-rust.yml
 
 permissions:

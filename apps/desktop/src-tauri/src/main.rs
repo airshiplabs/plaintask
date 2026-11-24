@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod about;
 mod folder;
 mod inbox_file;
+mod update;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -64,9 +66,11 @@ async fn write_inbox(state: State<'_, TaskFolder>, text: String) -> Result<(), S
 }
 
 #[tauri::command]
-fn ready(window: tauri::WebviewWindow) -> Result<(), String> {
+fn ready(app: AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
     if measuring() {
         println!("ready");
+    } else {
+        update::schedule_checks(&app);
     }
     window.show().map_err(|e| e.to_string())
 }
@@ -101,7 +105,13 @@ fn main() {
                 });
             }
         })
-        .invoke_handler(tauri::generate_handler![folder, choose_folder, read_inbox, write_inbox, set_badge, ready, first_frame])
+        .setup(|app| {
+            app.set_menu(about::menu(app.handle())?)?;
+            update::start(app.handle());
+            Ok(())
+        })
+        .on_menu_event(|app, event| about::on_menu_event(app, event.id()))
+        .invoke_handler(tauri::generate_handler![folder, choose_folder, read_inbox, write_inbox, set_badge, ready, first_frame, about::app_version, update::check_for_updates, update::restart_for_update])
         .run(tauri::generate_context!())
         .expect("Plaintask could not start");
 }

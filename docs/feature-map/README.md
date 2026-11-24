@@ -4,7 +4,7 @@ This directory lists every user-facing feature of the Plaintask desktop app (`ap
 
 ## The app in one screen
 
-The app has one window, 880 by 620 points at first launch, with no title bar. It shows one list, Inbox, backed by the file `Inbox.md` in a folder the person picks.
+The app has one main window, 880 by 620 points at first launch, with no title bar. The app menu also opens a small About window (see [Check for updates](./check-for-updates.md)). It shows one list, Inbox, backed by the file `Inbox.md` in a folder the person picks.
 
 | Region | Holds |
 | --- | --- |
@@ -59,6 +59,7 @@ Every edit (add, complete, Undo, rename) reads `Inbox.md` from disk, changes it 
 3. As a person who thinks of a task in the middle of other work, I press `N`, type the title and press Return. See [Add a task](./add-task.md).
 4. As a person who works from the keyboard, I move between tasks, tick them and rename them without the mouse. See [Keyboard navigation](./keyboard-navigation.md), [Complete a task and Undo](./complete-task.md) and [Rename a task](./rename-task.md).
 5. As a person who also edits `Inbox.md` in a text editor, or lets a script or an agent write to it, I switch back to the app and it shows the file as it is. Its own edits keep my lines. See [View the Inbox](./view-inbox.md), [Add a task](./add-task.md), [Complete a task and Undo](./complete-task.md) and [Rename a task](./rename-task.md).
+6. As a person who wants the newest version, I click Update when the app offers one, and it installs in place. See [Check for updates](./check-for-updates.md).
 
 ## Feature entry contract
 
@@ -193,6 +194,7 @@ Both tiers:
 - [Complete a task and Undo](./complete-task.md) covers ticking by mouse and by Space, the toast, Undo, a double-click on Undo, the last task, repeated ticks, long titles, failed saves and a read-only or hard-linked file.
 - [Rename a task](./rename-task.md) covers opening the title field by Return and by double-click, saving, cancelling, a blank title and failed saves.
 - [Keyboard navigation](./keyboard-navigation.md) covers `j`, `k` and the arrow keys, the full key list, and when keys are left alone.
+- [Check for updates](./check-for-updates.md) covers the daily check, the update toast, the restart that waits for the form, the About window and a real install.
 
 ## Not mapped
 

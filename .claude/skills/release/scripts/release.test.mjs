@@ -1,10 +1,10 @@
 // release.test.mjs - the release.mjs CLI contract: exit codes, stdout JSON, what it runs, and what it refuses.
-// Each test gets its own git repo with a bare "origin", and stub gh, cargo, security, xcrun and pnpm on PATH
+// Each test gets its own git repo with a bare "origin", and stub gh, cargo, security, xcrun, pnpm and Sparkle's sign_update and generate_keys on PATH
 // that record their arguments and replay fixtures. No test calls GitHub or an Apple tool.
 //   node --test release.test.mjs     (run from this directory)
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -15,7 +15,7 @@ import { validateBranchName } from '../../branch-naming/branch-name.mjs';
 const cliPath = fileURLToPath(new URL('./release.mjs', import.meta.url));
 const VERSION = '0.1.0';
 const DMG = `Plaintask_${VERSION}_aarch64.dmg`;
-const STUBBED = ['gh', 'cargo', 'security', 'xcrun', 'pnpm'];
+const STUBBED = ['gh', 'cargo', 'security', 'xcrun', 'pnpm', 'sign_update', 'generate_keys'];
 
 // Replays the fixture whose key is the longest prefix of "<tool> <args>". A list fixture replays one reply per call, then repeats its last.
 const STUB = `import { appendFileSync, existsSync, readFileSync } from 'node:fs';
@@ -38,6 +38,14 @@ const MANIFESTS = {
   'apps/desktop/src-tauri/Cargo.lock': '[[package]]\nname = "plaintask"\nversion = "0.0.0"\n',
 };
 const CHANGELOG = 'apps/desktop/CHANGELOG.md';
+/** The updates' EdDSA key: the app's Info.plist trusts its public half, and the stub sign_update signs with it. */
+const SPARKLE_KEY = generateKeyPairSync('ed25519');
+const SPARKLE_PUBLIC_KEY = Buffer.from(SPARKLE_KEY.publicKey.export({ format: 'jwk' }).x, 'base64url').toString('base64');
+const INFO_PLIST = ['<?xml version="1.0" encoding="UTF-8"?>', '<plist version="1.0">', '<dict>',
+  '  <key>SUFeedURL</key>', '  <string>https://github.com/airshiplabs/plaintask/releases/latest/download/appcast.xml</string>',
+  '  <key>SUPublicEDKey</key>', `  <string>${SPARKLE_PUBLIC_KEY}</string>`, '</dict>', '</plist>', ''].join('\n');
+/** What sign_update prints for `bytes`, signed with `key`. */
+const signUpdate = (bytes, key = SPARKLE_KEY.privateKey) => ({ stdout: `sparkle:edSignature="${sign(null, Buffer.from(bytes), key).toString('base64')}" length="${bytes.length}"\n` });
 // The empty template from .claude/skills/keep-a-changelog/FORMAT.md, for the desktop component.
 const EMPTY_CHANGELOG = [
   '# Changelog', '', 'All notable changes to this project are documented in this file.', '',
@@ -103,7 +111,7 @@ function makeRepo(t) {
   git('init', '--quiet', '--initial-branch', 'main', 'work');
   git('remote', 'add', 'origin', join(dir, 'origin.git'));
   repo.write('.gitignore', 'dist/\n');
-  repo.commit({ ...MANIFESTS, [CHANGELOG]: EMPTY_CHANGELOG }, 'feat(desktop): add the app (#1)');
+  repo.commit({ ...MANIFESTS, [CHANGELOG]: EMPTY_CHANGELOG, 'apps/desktop/src-tauri/Info.plist': INFO_PLIST }, 'feat(desktop): add the app (#1)');
   repo.entries = join(dir, 'entries.json');
   writeFileSync(repo.entries, JSON.stringify(ENTRIES));
   return repo;
@@ -119,10 +127,12 @@ function landRelease(repo) {
   return repo.git('rev-parse', 'HEAD');
 }
 
+const DMG_BYTES = 'not a real disk image';
+
 /** Writes dist/release/<V>/ as a finished build of `sha` would leave it. `verified` adds a passing verify.json, `qa` a passing qa.json. */
 function fakeBuild(repo, sha, { signature = 'developer-id', verified = true, dirty = false, qa = verified } = {}) {
   const out = `dist/release/${VERSION}`;
-  const bytes = 'not a real disk image';
+  const bytes = DMG_BYTES;
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   repo.write(`${out}/${DMG}`, bytes);
   repo.write(`${out}/SHA256SUMS.txt`, `${sha256}  ${DMG}\n`);
@@ -137,7 +147,7 @@ function fakeBuild(repo, sha, { signature = 'developer-id', verified = true, dir
 }
 
 const release = (isDraft, bytes) => ({
-  stdout: { isDraft, url: `https://github.com/airshiplabs/plaintask/releases/tag/${TAG}`, tagName: TAG, publishedAt: '2026-11-22T10:00:00Z', assets: [{ name: DMG, size: bytes }, { name: 'SHA256SUMS.txt', size: 90 }] },
+  stdout: { isDraft, url: `https://github.com/airshiplabs/plaintask/releases/tag/${TAG}`, tagName: TAG, publishedAt: '2026-11-22T10:00:00Z', assets: [{ name: DMG, size: bytes }, { name: 'SHA256SUMS.txt', size: 90 }, { name: 'appcast.xml', size: 900 }] },
 });
 
 test('a usage error exits 2 with the usage line and nothing on stdout', (t) => {
@@ -464,12 +474,16 @@ test('stage waits for CI, and --dry-run prints the tag, push and draft release w
   assert.match(waiting.stderr, /run the same command again/);
   assert.equal(repo.cli(['stage', '--version', VERSION], { 'gh api': RED }).status, 1);
 
-  const dry = repo.cli(['stage', '--version', VERSION, '--dry-run']);
+  const forged = repo.cli(['stage', '--version', VERSION, '--dry-run'], { sign_update: signUpdate(DMG_BYTES, generateKeyPairSync('ed25519').privateKey) });
+  assert.equal(forged.status, 1);
+  assert.match(forged.stderr, /would not install as an update: the signature does not match the file and SUPublicEDKey/);
+
+  const dry = repo.cli(['stage', '--version', VERSION, '--dry-run'], { sign_update: signUpdate(DMG_BYTES) });
   assert.equal(dry.status, 0, dry.stderr);
   const would = dry.stderr.split('\n').filter((line) => line.startsWith('would run: '));
   assert.equal(would[0], `would run: git tag --sign desktop-v0.1.0 ${sha} --message Plaintask 0.1.0 for macOS`);
   assert.equal(would[1], 'would run: git push origin refs/tags/desktop-v0.1.0');
-  assert.match(would[2], /^would run: gh release create desktop-v0\.1\.0 .*Plaintask_0\.1\.0_aarch64\.dmg .*SHA256SUMS\.txt --draft --verify-tag --title Plaintask 0\.1\.0 for macOS --notes-file /);
+  assert.match(would[2], /^would run: gh release create desktop-v0\.1\.0 .*Plaintask_0\.1\.0_aarch64\.dmg .*SHA256SUMS\.txt .*appcast\.xml --draft --verify-tag --title Plaintask 0\.1\.0 for macOS --notes-file /);
   assert.equal(repo.git('tag', '--list'), '');
   assert.equal(existsSync(join(repo.work, `dist/release/${VERSION}/release-notes.md`)), false);
 
@@ -494,7 +508,7 @@ test('publish needs a staged release whose tag and assets match the verified bui
 
   const dry = repo.cli(['publish', '--version', VERSION, '--dry-run'], { 'gh release view': release(true, bytes) });
   assert.equal(dry.status, 0, dry.stderr);
-  assert.match(dry.stderr, /would run: gh release edit desktop-v0\.1\.0 --draft=false/);
+  assert.match(dry.stderr, /would run: gh release edit desktop-v0\.1\.0 --draft=false --latest/);
   assert.ok(!dry.log.some((line) => line.startsWith('gh release edit') || line.startsWith('gh release download')));
 });
 

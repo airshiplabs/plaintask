@@ -11,6 +11,10 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+# Sparkle 2's updater (src/update.rs). Its build script links Sparkle.framework, which scripts/sparkle.mjs puts in this folder.
+sparkle-updater = "0.1"
+serde_json = "1"
 # The security-scoped bookmark that remembers the task folder (src/folder.rs) is a Foundation API.
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSURL"] }

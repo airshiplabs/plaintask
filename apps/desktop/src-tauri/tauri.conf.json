@@ -5,8 +5,8 @@
   "identifier": "com.airshiplabs.plaintask",
   "build": {
     "frontendDist": "../dist",
-    "beforeBuildCommand": "node build.mjs",
-    "beforeDevCommand": "node build.mjs"
+    "beforeBuildCommand": "node scripts/sparkle.mjs && node build.mjs",
+    "beforeDevCommand": "node scripts/sparkle.mjs && node build.mjs"
   },
   "app": {
     "windows": [
@@ -28,11 +28,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.icns"],
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/icon.icns"
+    ],
     "macOS": {
       "entitlements": "Entitlements.plist",
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "frameworks": [
+        "Sparkle.framework"
+      ]
     }
   }
 }

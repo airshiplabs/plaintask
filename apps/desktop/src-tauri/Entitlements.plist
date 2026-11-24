@@ -4,12 +4,20 @@
 <dict>
   <key>com.apple.security.app-sandbox</key>
   <true/>
-  <!-- WKWebView loads no page inside the sandbox without this, the app's own bundled page included. The app makes no network requests. -->
+  <!-- WKWebView loads no page inside the sandbox without this, the app's own bundled page included. Sparkle also reads the release feed and downloads updates through it. -->
   <key>com.apple.security.network.client</key>
   <true/>
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
   <key>com.apple.security.files.bookmarks.app-scope</key>
   <true/>
+  <!-- Sparkle's Installer.xpc and its status port, which install an update from inside the sandbox
+       (https://sparkle-project.org/documentation/sandboxing/). scripts/build-app.mjs writes a build's own
+       bundle identifier into these two names when it is not com.airshiplabs.plaintask. -->
+  <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+  <array>
+    <string>com.airshiplabs.plaintask-spks</string>
+    <string>com.airshiplabs.plaintask-spki</string>
+  </array>
 </dict>
 </plist>

@@ -17,9 +17,14 @@ const js = value => JSON.stringify(value).replace(/[<>/\u2028\u2029]/g, c => ESC
     `gone` true means the folder itself no longer exists, which read_inbox answers with null. */
 function openApp(t, { folder = '/Users/test/Tasks', inbox = '', pick = null, folderError = null, readError = null, writeError = null, gone = false } = {}) {
   const standIn = `window.__disk = ${js({ folder, inbox, pick, folderError, readError, writeError, gone, writes: [], calls: [], dock: null })};
-    window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+    const callbacks = new Map(), listeners = new Map(); let nextId = 1;
+    /** What the Rust layer sends the window, such as "update-available". */
+    window.__emit = (event, payload) => { for (const id of listeners.get(event) ?? []) callbacks.get(id)({ event, id, payload }); };
+    window.__TAURI_INTERNALS__ = { transformCallback: cb => { const id = nextId++; callbacks.set(id, cb); return id; }, invoke: async (command, args) => {
       const disk = window.__disk;
       disk.calls.push(command);
+      if (command === 'plugin:event|listen') { listeners.set(args.event, [...(listeners.get(args.event) ?? []), args.handler]); return args.handler; }
+      if (command === 'check_for_updates' || command === 'restart_for_update') return null;
       if (command === 'folder') { if (disk.folderError) throw disk.folderError; return disk.folder; }
       if (command === 'choose_folder') { if (disk.pick) { disk.folder = disk.pick; disk.gone = false; } return disk.pick; }
       if (command === 'read_inbox') { if (disk.readError) throw disk.readError; return disk.gone ? null : disk.inbox; }
@@ -879,4 +884,87 @@ test('in a 10,000-task Inbox, adding a task and ticking one each take under 16 m
   console.log('10,000 tasks: add median ' + add.toFixed(1) + ' ms, tick median ' + ticked.toFixed(1) + ' ms');
   assert.ok(add <= 16, 'adding took a median of ' + add.toFixed(1) + ' ms; the budget is 16 ms');
   assert.ok(ticked <= 16, 'ticking took a median of ' + ticked.toFixed(1) + ' ms; the budget is 16 ms');
+});
+
+const UPDATE_TOAST = '[data-toasts] .pt-toast[data-update]:not(.is-leaving)';
+const UPDATE_TOASTS = `document.querySelectorAll(${js(UPDATE_TOAST)}).length`;
+const CALLS = command => `window.__disk.calls.filter(c => c === ${js(command)}).length`;
+
+test('an update the check finds is offered in a toast that stays; Update opens the update window', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the Inbox did not show');
+  assert.ok(await page.evaluate('window.__disk.calls.indexOf("plugin:event|listen") < window.__disk.calls.indexOf("ready")'), 'the window should listen for updates before it says it is ready, which starts the checks');
+  await page.evaluate('window.__emit("update-available", "0.3.0")');
+  assert.equal(await page.poll(TEXT(UPDATE_TOAST + ' span')), 'Plaintask 0.3.0 is available');
+  await page.evaluate('window.__emit("update-available", "0.3.0")');
+  assert.equal(await page.evaluate(UPDATE_TOASTS), 1, 'a second check that finds the same version should not add a second toast');
+  await new Promise(resolve => setTimeout(resolve, 5600));
+  assert.equal(await page.evaluate(UPDATE_TOASTS), 1, 'the toast should still show after the 5 s other toasts last');
+  await page.evaluate(click(UPDATE_TOAST + ' button:not(.app__toast-close)'));
+  assert.equal(await page.poll(CALLS('check_for_updates'), n => n === 1), 1, 'Update should open the update window');
+  assert.equal(await page.evaluate(UPDATE_TOASTS), 0, 'the toast should go once Update is clicked');
+});
+
+test('a closed update toast comes back with the next check that finds the update', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.ok(await page.poll(DRAWN), 'precondition: the page never asked for its window');
+  await page.evaluate('window.__emit("update-available", "0.3.0")');
+  assert.equal(await page.poll(UPDATE_TOASTS, n => n === 1), 1, 'precondition: no update toast');
+  await page.evaluate(click(UPDATE_TOAST + ' .app__toast-close'));
+  assert.equal(await page.evaluate(UPDATE_TOASTS), 0, 'Close should take the toast away');
+  assert.equal(await page.evaluate(CALLS('check_for_updates')), 0, 'Close should not open the update window');
+  await page.evaluate('window.__emit("update-available", "0.3.0")');
+  assert.equal(await page.poll(UPDATE_TOASTS, n => n === 1), 1, 'the next check should offer it again');
+});
+
+test('an installed update restarts the app at once, or waits while the new-task form is open', { timeout: 60000 }, async t => {
+  const page = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.deepEqual(await page.poll(ROWS, rows => rows.length > 0), ['Buy milk'], 'precondition: the Inbox did not show');
+  await page.evaluate(click('[data-head] .pt-btn'));
+  assert.ok(await page.poll(COMPOSER_OPEN), 'precondition: the form did not open');
+  await page.evaluate(type('Call mum'));
+  await page.evaluate('window.__emit("update-restart", null)');
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(await page.evaluate(CALLS('restart_for_update')), 0, 'the restart should wait while the form is open');
+  await page.evaluate(RETURN);
+  assert.equal(await page.poll(CALLS('restart_for_update'), n => n === 1), 1, 'the restart should happen once the task is added and the form closes');
+  assert.deepEqual(await page.evaluate(WRITES), ['- [ ] Buy milk\n- [ ] Call mum\n'], 'the task typed before the restart should be saved');
+
+  const closed = await openApp(t, { inbox: '- [ ] Buy milk\n' });
+  assert.ok(await closed.poll(DRAWN), 'precondition: the page never asked for its window');
+  await closed.evaluate('window.__emit("update-restart", null)');
+  assert.equal(await closed.poll('window.__disk.calls.filter(c => c === "restart_for_update").length', n => n === 1), 1, 'with the form closed the restart should happen at once');
+});
+
+/** Opens the About window. `checkError` makes opening the update window fail with that message. */
+function openAbout(t, { checkError = null } = {}) {
+  const standIn = `window.__about = ${js({ checkError, calls: [] })};
+    window.__TAURI_INTERNALS__ = {
+      invoke: async command => {
+        const about = window.__about;
+        about.calls.push(command);
+        if (command === 'app_version') return '0.2.0';
+        if (command === 'check_for_updates') { if (about.checkError) throw about.checkError; return null; }
+        throw new Error('the page asked for a command the app does not have: ' + command);
+      } };`;
+  return openSite(t, 'apps/desktop/dist', 300, 260, { before: standIn, page: 'about.html' });
+}
+const STATUS = TEXT('[data-status]');
+const BUTTON = TEXT('[data-button] .pt-btn');
+
+test('About shows the version, and Check for Updates opens the update window', { timeout: 60000 }, async t => {
+  const page = await openAbout(t);
+  assert.equal(await page.poll(TEXT('[data-version]')), 'Version 0.2.0');
+  assert.equal(await page.evaluate(BUTTON), 'Check for Updates');
+  assert.deepEqual(await page.evaluate('window.__about.calls.filter(c => c === "check_for_updates")'), [], 'opening About should not check by itself');
+  await page.evaluate(click('[data-button] .pt-btn'));
+  assert.equal(await page.poll('window.__about.calls.filter(c => c === "check_for_updates").length', n => n === 1), 1);
+  assert.equal(await page.evaluate(STATUS), '');
+});
+
+test('About says why the update window could not open', { timeout: 60000 }, async t => {
+  const page = await openAbout(t, { checkError: 'updates need the built app' });
+  assert.equal(await page.poll(TEXT('[data-version]')), 'Version 0.2.0', 'precondition: the version did not show');
+  await page.evaluate(click('[data-button] .pt-btn'));
+  assert.equal(await page.poll(STATUS, s => s?.startsWith('Could')), 'Could not check for updates: updates need the built app');
 });

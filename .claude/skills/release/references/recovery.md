@@ -42,6 +42,8 @@
 | `stage` | `no passing verify.json`, or the DMG `changed after it was built and verified` | Run `verify` again. If the DMG changed, remove `dist/release/<V>/` and build again. |
 | `stage` | Tag pushed, `gh release create` failed | Run `stage` again. It keeps the tag when origin's tag points at the release commit. |
 | `stage` | `tag desktop-v<V> on origin points at <other>` | See "Undo a stage". |
+| `stage` | `sign_update printed no signature` or `would not install as an update` | The Keychain's EdDSA key is missing or is not the one `SUPublicEDKey` in `apps/desktop/src-tauri/Info.plist` names. Run `preflight` and fix `sparkle-key` or `sparkle-pubkey` (`references/setup.md`). An app built with the wrong key needs a new build after the fix. |
+| `publish` | `GitHub marks <tag> as the latest release` | Another release is marked latest. `gh release edit desktop-v<V> --latest`, then run `publish` again. Installed copies read only the latest release's `appcast.xml`. |
 | `publish` | `the published ... has sha256 <other>` | `gh release edit desktop-v<V> --draft=true`, then find out why the asset differs. Re-upload only from the verified `dist/release/<V>/`: `gh release upload desktop-v<V> dist/release/<V>/<dmg> --clobber`. Run `publish` again. |
 
 ## Fix forward
