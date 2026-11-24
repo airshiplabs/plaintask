@@ -221,7 +221,8 @@ test('appcastXml offers the DMG with its EdDSA signature and the notes as Markdo
 });
 
 test('parseSignUpdate reads what sign_update prints, and nothing else', () => {
-  assert.deepEqual(parseSignUpdate('sparkle:edSignature="qoTp+/A==" length="3"\n'), { signature: 'qoTp+/A==', length: 3 });
+  assert.deepEqual(parseSignUpdate('sparkle:edSignature="qoTp+/A==" sparkle:length="3"\n'), { signature: 'qoTp+/A==', length: 3 }, 'the Keychain key');
+  assert.deepEqual(parseSignUpdate('sparkle:edSignature="qoTp+/A==" length="3"\n'), { signature: 'qoTp+/A==', length: 3 }, 'a key file');
   assert.equal(parseSignUpdate('ERROR! Unable to access required key in the keychain\n'), null);
 });
 

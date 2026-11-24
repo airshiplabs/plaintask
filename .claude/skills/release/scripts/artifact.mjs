@@ -257,9 +257,10 @@ export function appcastXml({ version, notes, date, url, length, signature }) {
 `;
 }
 
-/** sign_update's output, `sparkle:edSignature="…" length="…"`, as { signature, length }, or null when it is not that. */
+/** sign_update's output, `sparkle:edSignature="…" sparkle:length="…"`, as { signature, length }, or null when it is not that.
+    With a key file (--ed-key-file) it prints `length=` without the prefix. */
 export function parseSignUpdate(stdout) {
-  const found = /sparkle:edSignature="([A-Za-z0-9+/=]+)"\s+length="(\d+)"/.exec(stdout);
+  const found = /sparkle:edSignature="([A-Za-z0-9+/=]+)"\s+(?:sparkle:)?length="(\d+)"/.exec(stdout);
   return found ? { signature: found[1], length: Number(found[2]) } : null;
 }
 

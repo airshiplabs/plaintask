@@ -7,7 +7,7 @@
   <string>https://github.com/airshiplabs/plaintask/releases/latest/download/appcast.xml</string>
   <!-- The release key's public half: generate_keys prints it (release skill, references/setup.md). -->
   <key>SUPublicEDKey</key>
-  <string>PUBKEY</string>
+  <string>mBhzobM75nUW2C4pzW49nTOfeGf8sOGPAlKzr8DVLiI=</string>
   <!-- Installs through Sparkle's Installer.xpc, the way a sandboxed app can. -->
   <key>SUEnableInstallerLauncherService</key>
   <true/>
