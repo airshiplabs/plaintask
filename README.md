@@ -16,6 +16,7 @@ The macOS app is on the [releases page](https://github.com/airshiplabs/plaintask
 | `apps/mobile` | The mobile app. Not started |
 | `packages/design-system` | Tokens and components the apps draw with |
 | `specs` | TLA+ models of the app's state machines, and the tests that compare the code with them |
+| `docs/file-format.md` | How tasks, projects and areas are stored in the task folder |
 | `docs/feature-map` | Each user-facing feature, where it lives in the code, and how to drive it in a test |
 | `.claude/skills` | Agent skills for releases, changelogs, commit messages, branch names and checking the app |
 
