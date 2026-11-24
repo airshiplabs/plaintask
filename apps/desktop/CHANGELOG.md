@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
 ### Added
 
 - The app checks for updates daily and installs a new version in place when you choose Update ([#2])
@@ -57,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes that follow the macOS appearance ([a7f6353])
 - The About window shows the build's git commit as its build number ([6c9119d])
 
-[Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.1-moved...HEAD
+[Unreleased]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.3.0...HEAD
+[0.3.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.1-moved...desktop-v0.3.0
 [0.2.1]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.2.0-moved...desktop-v0.2.1-moved
 [0.2.0]: https://github.com/airshiplabs/plaintask/compare/desktop-v0.1.0-moved...desktop-v0.2.0-moved
 [0.1.0]: https://github.com/airshiplabs/plaintask/releases/tag/desktop-v0.1.0-moved
