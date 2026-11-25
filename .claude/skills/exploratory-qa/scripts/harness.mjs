@@ -16,6 +16,7 @@ import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DIST = fileURLToPath(new URL('../../../../apps/desktop/dist/', import.meta.url));
+const VERSION = JSON.parse(await readFile(join(DIST, '../package.json'), 'utf8')).version;   // About's app_version
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 
 // Tauri's page-side API calls window.__TAURI_INTERNALS__.invoke; a rejected command rejects with the Rust error's text.
@@ -56,6 +57,7 @@ export async function serve(folder, { port = 0, chosen = true } = {}) {
     if (name === 'ready' || name === 'first_frame') return null;
     if (name === 'plugin:event|listen') return args.handler;   // no update events are sent
     if (name === 'check_for_updates' || name === 'restart_for_update') return null;
+    if (name === 'app_version') return VERSION;
     throw 'the page asked for a command the app does not have: ' + name;
   }
 
@@ -76,7 +78,7 @@ export async function serve(folder, { port = 0, chosen = true } = {}) {
       }
       const name = req.url === '/' ? 'index.html' : req.url.slice(1).split('?')[0];
       let data = await readFile(join(DIST, name));
-      if (name === 'index.html') data = String(data).replace('<script src="bundle.js">', STAND_IN + '<script src="bundle.js">');
+      if (extname(name) === '.html') data = String(data).replace('<script src="bundle.js">', STAND_IN + '<script src="bundle.js">');
       res.writeHead(200, { 'content-type': TYPES[extname(name)] ?? 'application/octet-stream', 'cache-control': 'no-store' }).end(data);
     } catch (e) { res.writeHead(404).end(String(e)); }
   });

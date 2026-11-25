@@ -19,7 +19,7 @@ import { serve } from './harness.mjs';
 const WIDTH = 880, HEIGHT = 620;   // the app window's default size (src-tauri/tauri.conf.json)
 const STRIP = 150;                 // the evidence strip under the app
 
-function playwright() {
+export function playwright() {
   const roots = [import.meta.url];
   try { roots.push(join(execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim(), '@playwright/cli/node_modules/')); } catch { /* no npm: the local package is the only place to look */ }
   for (const root of roots) { try { return createRequire(root)('playwright'); } catch { /* try the next place */ } }
@@ -34,8 +34,9 @@ const STRIP_CSS = `.app{height:${HEIGHT}px!important}.app__toasts{bottom:${STRIP
 #qa-file b{color:#f5c400;font-weight:400}`;
 
 /** Opens the page on `folder`. `inbox` is written to Inbox.md first: a string, null for no file, undefined to leave the folder as it is.
-    `evidence.dir` turns on the strip and `shot()`; `evidence.video` also records <dir>/<video>.mp4. `chosen: false` starts with no folder picked. */
-export async function openApp({ folder, inbox, evidence, chosen = true, width = WIDTH, height = HEIGHT }) {
+    `evidence.dir` turns on the strip and `shot()`; `evidence.video` also records <dir>/<video>.mp4. `chosen: false` starts with no folder picked.
+    `page: 'about.html'` opens the About window's page instead; `ready` is the selector that shows the page has drawn. */
+export async function openApp({ folder, inbox, evidence, chosen = true, width = WIDTH, height = HEIGHT, page: path = '', ready = path ? '[data-version]:not(:empty)' : '[data-list] > *' }) {
   const file = join(folder, 'Inbox.md');
   mkdirSync(folder, { recursive: true });
   if (inbox === null) rmSync(file, { force: true });
@@ -52,10 +53,10 @@ export async function openApp({ folder, inbox, evidence, chosen = true, width = 
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(harness.url);
-  await page.waitForSelector('[data-list] > *');
+  await page.goto(harness.url + path);
+  await page.waitForSelector(ready);
   if (evidence) {
-    await page.addStyleTag({ content: STRIP_CSS });
+    await page.addStyleTag({ content: STRIP_CSS + (path ? `html{height:${height}px!important}#qa{grid-template-columns:1fr}#qa-file{display:none}` : '') });
     await page.evaluate(() => { const strip = document.createElement('div'); strip.id = 'qa'; strip.innerHTML = '<div id="qa-say"></div><div id="qa-file"></div>'; document.body.append(strip); });
   }
   const onDisk = () => existsSync(file) ? readFileSync(file, 'utf8') : null;

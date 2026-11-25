@@ -29,9 +29,18 @@ Take the "before" picture before your first UI edit. If you missed it, run the s
 
 ## 3. Capture it
 
-Never use the person's own task folder or the installed app.
+Never use the person's own task folder or the installed app. There are two paths. Pick by where the change shows.
 
-**Screenshots** (page tier, load the `verify-desktop` skill for the full command list):
+| Path | Runs | Use it for |
+| --- | --- | --- |
+| Page | The built page in headless Chromium, the Rust commands answered by a stand-in | The main window's page and the About page: layout, text, colour, keys, flows |
+| Real window | A built `Plaintask.app` under a test identifier | Window size and chrome set in Rust (`inner_size`, title bar), WKWebView rendering, the sandbox, the folder panel, the Dock, menus |
+
+When unsure, use the page path first. If the picture does not show the change, use the real window. A window-size change looks different in Chromium than in the app.
+
+### Page path
+
+**Screenshots** (load the `verify-desktop` skill for the full command list):
 
 ```sh
 .claude/skills/verify-desktop/scripts/control-desktop.mjs launch --run ui
@@ -57,7 +66,33 @@ await app.close();                 // writes $OUT/evidence/demo.mp4
 
 `OUT` is a folder outside the repo. Call `say()` after the action it describes. Each subtitle states what the viewer sees, in the person's terms.
 
-**Real window.** A change only the built app shows (WKWebView rendering, the sandbox, the folder panel, the Dock, the About window) needs the `checking-desktop-app` skill. Screenshot the real window there.
+**The About page.** Pass `page: 'about.html'` and the window's size. The strip then shows only the subtitle. The version comes from `apps/desktop/package.json`; Check for Updates succeeds and shows no status.
+
+```js
+const app = await openApp({ folder: OUT + '/tasks', inbox: '', page: 'about.html', width: 300, height: 320,
+  evidence: { dir: OUT + '/evidence' } });
+await app.say('About, 300 x 320.', 300);
+await app.shot('about-after');
+await app.close();
+```
+
+### Real window path
+
+Load the `checking-desktop-app` skill and follow "Make a separate copy". It takes about 2 minutes per build.
+
+1. For before and after, build once per version: `pnpm --filter @plaintask/desktop app --config '{"identifier":"com.airshiplabs.plaintask.dev"}'`. For the "before" build, revert only the changed lines, build, then restore them with `git checkout -- <file>`. Copy each `Plaintask.app` out of `target/` before the next build overwrites it.
+2. Run one copy at a time: both share the test identifier. Start its binary with `PLAINTASK_ROOT` set to a folder under `~/Library/Containers/com.airshiplabs.plaintask.dev/Data/tmp/`.
+3. Drive it with the computer-use `app_*` tools: `app_menu` reaches the menus, for example `["Plaintask", "About Plaintask"]`. `app_list_windows` gives each window's id.
+4. Save a picture of one window, at 2x, without its shadow: `screencapture -x -o -l <window id> before.png`.
+5. Turn the pictures into a subtitled video. Each picture shows for 3.5 s above its subtitle:
+
+   ```sh
+   node .claude/skills/pr-ui-evidence/scripts/stills-to-demo.mjs demo.mp4 \
+     before.png 'Before: About is 300 x 260. Check for Updates is cut off.' \
+     after.png 'After: About is 300 x 320. The whole button shows.'
+   ```
+
+6. Clean up as `checking-desktop-app` says: quit the copy, delete it and its container, and build once more without `--config`.
 
 ## 4. Check it
 
@@ -67,4 +102,4 @@ Open every picture and watch the video once. Drop any claim in the PR body that 
 
 Use the `bostonaholic:attaching-pr-screenshots` skill to upload the files into one `## Screenshots` section of the PR body. Name each picture by what it shows ("Before: ...", "After: ..."). Do not add a `- [ ]` box for the evidence.
 
-If you cannot capture the change (no screen access for the real window, a tool missing), write why as a plain bullet in the PR body and tell the user. Do not leave a UI PR without evidence silently.
+If you cannot capture the change (the person declined screen control for the real window, a tool is missing), write why as a plain bullet in the PR body and tell the user. Do not leave a UI PR without evidence silently.
